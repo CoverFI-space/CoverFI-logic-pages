@@ -61,11 +61,17 @@ export default function LoginPage() {
     setStatus("");
 
     try {
+      console.log("Connecting Freighter wallet...");
       const address = await connectFreighterWallet();
+      console.log("Freighter address received:", address);
       setWalletAddress(address);
       setStatus("Checking saved username...");
 
       const existingSession = await findSessionByWallet(address);
+      console.log(
+        "Wallet lookup result:",
+        existingSession ? "session found" : "no session",
+      );
 
       if (existingSession) {
         navigateToAppRoute(getSafeNextRoute());
@@ -73,8 +79,10 @@ export default function LoginPage() {
       }
 
       createWalletSession(address);
+      console.log("Created temporary wallet session.");
       navigateToAppRoute(getSafeNextRoute());
     } catch (error) {
+      console.error("Login flow failed:", error);
       setStatus(
         error instanceof Error ? error.message : "Could not connect Freighter.",
       );

@@ -34,14 +34,43 @@ export function createWalletSession(walletAddress: string) {
   });
 }
 
+async function readApiMessage(response: Response, fallback: string) {
+  try {
+    const contentType = response.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+      const data = (await response.json().catch(() => null)) as
+        | { message?: string }
+        | null;
+      return data?.message || fallback;
+    }
+
+    const text = await response.text().catch(() => "");
+    return text || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function findSessionByWallet(walletAddress: string) {
   let response: Response;
 
   try {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+
     response = await fetch(
       getApiUrl(`/api/wallets/${encodeURIComponent(walletAddress)}`),
+      { signal: controller.signal },
     );
-  } catch {
+
+    window.clearTimeout(timeoutId);
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("The wallet lookup timed out. Please retry in a moment.");
+    }
+
+    console.error("Wallet lookup request failed:", error);
     throw new Error(
       "Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and make sure MONGODB_URI is set in D:\\Stellar\\server\\.env.",
     );
@@ -51,12 +80,17 @@ export async function findSessionByWallet(walletAddress: string) {
     return null;
   }
 
+  if (!response.ok) {
+    const message = await readApiMessage(response, "Could not check this wallet username.");
+    throw new Error(message);
+  }
+
   const result = (await response.json().catch(() => null)) as
     | (PrismaSession & { message?: string })
     | null;
 
-  if (!response.ok || !result) {
-    throw new Error(result?.message || "Could not check this wallet username.");
+  if (!result) {
+    throw new Error("The backend returned an empty wallet lookup response.");
   }
 
   return storeSession({
@@ -80,15 +114,20 @@ export async function reserveUsername(username: string, walletAddress: string) {
     );
   }
 
+  if (!response.ok) {
+    const message = await readApiMessage(
+      response,
+      "Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and check MONGODB_URI in D:\\Stellar\\server\\.env.",
+    );
+    throw new Error(message);
+  }
+
   const result = (await response.json().catch(() => null)) as
     | (PrismaSession & { message?: string })
     | null;
 
-  if (!response.ok || !result) {
-    throw new Error(
-      result?.message ||
-        "Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and check MONGODB_URI in D:\\Stellar\\server\\.env.",
-    );
+  if (!result) {
+    throw new Error("The backend returned an empty registration response.");
   }
 
   const session = {
