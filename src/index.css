@@ -1,0 +1,192 @@
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #DEDBC8;
+  --font-sans: 'Almarai', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+  --font-serif: "Instrument Serif", serif;
+}
+
+@layer base {
+  * {
+    font-family: 'Almarai', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+  }
+
+  a,
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  html {
+    background: #000;
+    overscroll-behavior: none;
+    scroll-behavior: smooth;
+    scrollbar-color: rgba(225, 224, 204, 0.45) rgba(255, 255, 255, 0.04);
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    background: #000;
+    color: #fff;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    overflow-y: auto;
+  }
+}
+
+@layer components {
+  .liquid-glass {
+    background: rgba(255, 255, 255, 0.01);
+    background-blend-mode: luminosity;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border: 1px solid rgba(225, 224, 204, 0.12);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: rgba(225, 224, 204, 0.35);
+    border: 2px solid rgba(0, 0, 0, 0.8);
+    border-radius: 999px;
+  }
+
+  .nav-underline {
+    position: relative;
+    color: #000;
+    text-decoration: none;
+  }
+
+  .nav-underline:hover {
+    color: #000;
+  }
+
+  .nav-underline::before {
+    content: "";
+    position: absolute;
+    display: block;
+    width: 100%;
+    height: 2px;
+    bottom: 0;
+    left: 0;
+    background-color: #000;
+    transform: scaleX(0);
+    transition: transform 0.3s ease;
+  }
+
+  .nav-underline:hover::before {
+    transform: scaleX(1);
+  }
+
+  .noise-overlay {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  }
+
+  .prisma-nav-link {
+    position: relative;
+    text-decoration: none;
+  }
+
+  .prisma-nav-link::before {
+    content: "";
+    position: absolute;
+    display: block;
+    width: 100%;
+    height: 2px;
+    bottom: -4px;
+    left: 0;
+    background-color: currentColor;
+    transform: scaleX(0);
+    transition: transform 0.3s ease;
+  }
+
+  .prisma-nav-link:hover::before {
+    transform: scaleX(1);
+  }
+
+  .transition-blocks {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+  }
+
+  .transition-blocks__back-el {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    background: #fffae6;
+  }
+
+  .transition-blocks__lines {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    width: 100%;
+    height: 100%;
+  }
+
+  .transition-blocks__line {
+    width: 100%;
+    height: 100%;
+    transform: scaleX(1.1);
+    background-image: linear-gradient(80deg, #fff, #fee3e3);
+    background-size: 300% 100%;
+    animation: transition-gradient 2s ease infinite;
+  }
+
+  .transition-blocks__lines-h {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+  }
+
+  .transition-blocks__line-h {
+    width: 100%;
+    height: 100%;
+    transform: scale(1.01);
+    background-image: linear-gradient(80deg, #fff, #fee3e3);
+    background-size: 300% 200%;
+    animation: transition-gradient 1s ease infinite;
+  }
+
+  @keyframes transition-gradient {
+    0% {
+      background-position: 0 0;
+    }
+
+    50% {
+      background-position: 100% 0;
+    }
+
+    100% {
+      background-position: 0 0;
+    }
+  }
+}
