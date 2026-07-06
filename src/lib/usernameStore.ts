@@ -57,7 +57,7 @@ export async function findSessionByWallet(walletAddress: string) {
 
   try {
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 20000);
 
     response = await fetch(
       getApiUrl(`/api/wallets/${encodeURIComponent(walletAddress)}`),
@@ -72,7 +72,7 @@ export async function findSessionByWallet(walletAddress: string) {
 
     console.error("Wallet lookup request failed:", error);
     throw new Error(
-      "Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and make sure MONGODB_URI is set in D:\\Stellar\\server\\.env.",
+      "Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and make sure Firebase credentials are set in D:\\Stellar\\server\\.env.",
     );
   }
 
@@ -113,14 +113,14 @@ export async function reserveUsername(username: string, walletAddress: string) {
     });
   } catch {
     throw new Error(
-      "Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and make sure MONGODB_URI is set in D:\\Stellar\\server\\.env.",
+      "Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and make sure Firebase credentials are set in D:\\Stellar\\server\\.env.",
     );
   }
 
   if (!response.ok) {
     const message = await readApiMessage(
       response,
-      "Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and check MONGODB_URI in D:\\Stellar\\server\\.env.",
+      "Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and check Firebase credentials in D:\\Stellar\\server\\.env.",
     );
     throw new Error(message);
   }

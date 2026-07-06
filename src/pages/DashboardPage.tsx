@@ -1172,6 +1172,11 @@ type ChatMessage = {
   text: string;
 };
 
+type StoredChatMessage = {
+  message?: string;
+  reply?: string;
+};
+
 type PaymentDraft = {
   recipientUsername: string;
   recipientWallet?: string;
@@ -1608,16 +1613,53 @@ function AiChat({
   walletAddress: string;
   onLogout: () => void;
 }) {
+  const welcomeMessage: ChatMessage = {
+    sender: "assistant",
+    text: `Welcome ${username}. I can answer DepositFree questions or prepare a username payment draft with a processing fee. I will not send funds without you reviewing it.`,
+  };
   const [messages, setMessages] = useState<Array<ChatMessage>>([
-    {
-      sender: "assistant",
-      text: `Welcome ${username}. I can answer DepositFree questions or prepare a username payment draft with a processing fee. I will not send funds without you reviewing it.`,
-    },
+    welcomeMessage,
   ]);
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState<PaymentDraft | null>(null);
+
+  useEffect(() => {
+    if (!walletAddress) return;
+
+    let ignore = false;
+
+    async function loadChatHistory() {
+      try {
+        const response = await fetch(
+          getApiUrl(`/api/ai/chat/${encodeURIComponent(walletAddress)}`),
+        );
+        const data = (await response.json().catch(() => null)) as {
+          messages?: StoredChatMessage[];
+        } | null;
+
+        if (ignore || !response.ok || !data?.messages?.length) return;
+
+        const restored = data.messages.flatMap((item) => {
+          const items: ChatMessage[] = [];
+          if (item.message) items.push({ sender: "user", text: item.message });
+          if (item.reply) items.push({ sender: "assistant", text: item.reply });
+          return items;
+        });
+
+        setMessages([welcomeMessage, ...restored]);
+      } catch {
+        // Ignore history load failures and keep the chat usable.
+      }
+    }
+
+    void loadChatHistory();
+
+    return () => {
+      ignore = true;
+    };
+  }, [username, walletAddress]);
 
   async function preparePaymentDraft(trimmed: string) {
     const parsed = parsePaymentDraft(trimmed);
@@ -1711,7 +1753,7 @@ function AiChat({
       const response = await fetch(getApiUrl("/api/ai/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed }),
+        body: JSON.stringify({ message: trimmed, walletAddress }),
       });
       const data = await response.json().catch(() => null);
 
@@ -1758,7 +1800,7 @@ function AiChat({
             <div className="mt-5 grid gap-3 text-sm text-[#E1E0CC]/60">
               <div className="flex items-center gap-3 rounded-xl bg-black/25 px-4 py-3">
                 <CheckCircle2 className="h-4 w-4 text-emerald-200" />
-                Username lookup through MongoDB
+                Username lookup through Firestore
               </div>
               <div className="flex items-center gap-3 rounded-xl bg-black/25 px-4 py-3">
                 <Calculator className="h-4 w-4 text-[#E1E0CC]" />
