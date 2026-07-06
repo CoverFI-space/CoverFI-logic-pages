@@ -3,13 +3,14 @@
   "scripts": {
     "dev": "npm run dev:client",
     "dev:client": "vite --host localhost",
-    "dev:server": "npm --prefix server run dev",
+    "dev:server": "npm --prefix ../server run dev",
     "dev:full": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host localhost"
   },
   "dependencies": {
     "@stellar/freighter-api": "^6.0.1",
+    "@stellar/stellar-sdk": "^16.0.1",
     "@vitejs/plugin-react": "latest",
     "concurrently": "^10.0.3",
     "framer-motion": "latest",

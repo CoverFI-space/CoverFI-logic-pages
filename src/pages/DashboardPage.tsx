@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { DashboardLayout, DataTable, EmptyState, FormInput, GlassCard, PrimaryButton, StatCard, StatusBadge } from '../components/dashboard/DashboardComponents';
 import { clearAppProfile, useDepositFree } from '../context/AppContext';
 import { clearStoredSession, getStoredSession } from '../lib/usernameStore';
+import { createProtectionPositionOnChain } from '../lib/stellarContracts';
 import type { ProtectionPosition, UserProfile } from '../context/AppContext';
 
 const feeRates: Record<string, number> = {
@@ -19,6 +20,15 @@ function shortAddress(address: string) {
 
 function usd(value: number) {
   return `$${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+}
+
+function compactText(value: string, head = 8, tail = 8) {
+  if (!value || value.length <= head + tail + 3) return value;
+  return `${value.slice(0, head)}...${value.slice(-tail)}`;
+}
+
+function stellarExpertTxUrl(hash: string, network: 'testnet' | 'mainnet') {
+  return `https://stellar.expert/explorer/${network === 'mainnet' ? 'public' : 'testnet'}/tx/${hash}`;
 }
 
 function timeLeft(expiryTime: string) {
@@ -54,7 +64,7 @@ function AppShell({ username, walletAddress, title, subtitle, children, onLogout
     <DashboardLayout
       title={title}
       subtitle={subtitle}
-      sidebarItems={['Dashboard', 'Protect', 'Positions', 'Claims', 'Pay Username', 'AI Chat', 'Profile']}
+      sidebarItems={['Dashboard', 'Portfolio', 'Protect', 'Positions', 'Claims', 'Pay Username', 'AI Chat', 'Profile']}
       username={username}
       walletAddress={walletAddress}
       network={network}
@@ -171,8 +181,8 @@ function Info({ label, value }: { label: string; value: string }) {
 }
 
 function Protect({ username, walletAddress, onLogout }: { username: string; walletAddress: string; onLogout: () => void }) {
-  const { createPosition } = useDepositFree();
-  const [asset, setAsset] = useState('USDC');
+  const { createPosition, network } = useDepositFree();
+  const [asset, setAsset] = useState('XLM');
   const [coinPickerOpen, setCoinPickerOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [duration, setDuration] = useState('7');
@@ -180,6 +190,7 @@ function Protect({ username, walletAddress, onLogout }: { username: string; wall
   const [currentPrice, setCurrentPrice] = useState('');
   const [priceStatus, setPriceStatus] = useState('');
   const [priceLoading, setPriceLoading] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
   const [priceUpdatedAt, setPriceUpdatedAt] = useState('');
   const [priceProvider, setPriceProvider] = useState('');
 
@@ -223,16 +234,38 @@ function Protect({ username, walletAddress, onLogout }: { username: string; wall
     fetchCurrentPrice(asset);
   }, [asset]);
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    createPosition({
-      asset,
-      protectedAmount,
-      feePaid,
-      triggerPrice: Number(triggerPrice),
-      currentPrice: Number(currentPrice),
-      expiryTime,
-    });
+    setCreateLoading(true);
+    setPriceStatus('Preparing contract transaction. Freighter will ask you to review and sign.');
+
+    try {
+      const receipt = await createProtectionPositionOnChain({
+        userAddress: walletAddress,
+        network,
+        asset,
+        protectedAmount,
+        durationSeconds: Number(duration) * 86400,
+        triggerPrice: Number(triggerPrice),
+      });
+
+      createPosition({
+        asset,
+        protectedAmount,
+        feePaid,
+        triggerPrice: Number(triggerPrice),
+        currentPrice: Number(currentPrice),
+        expiryTime,
+        contractPositionId: receipt.contractPositionId,
+        transactionHash: receipt.transactionHash,
+        assetContractId: receipt.assetContractId,
+        payoutAssetContractId: receipt.payoutAssetContractId,
+      });
+    } catch (error) {
+      setPriceStatus(error instanceof Error ? error.message : 'Could not create contract position.');
+    } finally {
+      setCreateLoading(false);
+    }
   }
 
   return (
@@ -244,7 +277,7 @@ function Protect({ username, walletAddress, onLogout }: { username: string; wall
               <p className="text-xs uppercase tracking-[0.3em] text-[#E1E0CC]/40">Position setup</p>
               <h2 className="mt-2 font-serif text-4xl italic text-[#E1E0CC]">Protect an asset.</h2>
             </div>
-            <button type="button" onClick={() => fetchCurrentPrice()} disabled={priceLoading} className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#E1E0CC]/20 px-4 py-3 text-xs uppercase tracking-widest text-[#E1E0CC]/70 transition-colors hover:bg-[#E1E0CC] hover:text-black disabled:cursor-not-allowed disabled:opacity-60">
+            <button type="button" onClick={() => fetchCurrentPrice()} disabled={priceLoading || createLoading} className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#E1E0CC]/20 px-4 py-3 text-xs uppercase tracking-widest text-[#E1E0CC]/70 transition-colors hover:bg-[#E1E0CC] hover:text-black disabled:cursor-not-allowed disabled:opacity-60">
               <RefreshCw className={`h-4 w-4 ${priceLoading ? 'animate-spin' : ''}`} />
               Refresh price
             </button>
@@ -292,9 +325,9 @@ function Protect({ username, walletAddress, onLogout }: { username: string; wall
             </div>
           </div>
 
-          <PrimaryButton type="submit" disabled={!protectedAmount || !currentPrice || priceLoading} className="mt-5 w-full">
-            <ShieldCheck className="h-4 w-4" />
-            Create Protection Position
+          <PrimaryButton type="submit" disabled={!protectedAmount || !currentPrice || priceLoading || createLoading} className="mt-5 w-full">
+            {createLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+            {createLoading ? 'Confirming Contract Position' : 'Create Contract Position'}
           </PrimaryButton>
         </form>
 
@@ -370,30 +403,72 @@ function CoinPicker({ selected, onSelect, onClose }: { selected: string; onSelec
 }
 
 function Positions({ username, walletAddress, onLogout }: { username: string; walletAddress: string; onLogout: () => void }) {
-  const { data, updatePositionPrice } = useDepositFree();
+  const { data, network, updatePositionPrice } = useDepositFree();
   const [prices, setPrices] = useState<Record<string, string>>({});
+  const activeCount = data.positions.filter((position) => position.status === 'Active').length;
+  const protectedTotal = data.positions.reduce((sum, position) => sum + position.protectedAmount, 0);
+  const chainCount = data.positions.filter((position) => position.transactionHash).length;
 
   return (
-    <AppShell username={username} walletAddress={walletAddress} title="Protection Positions." subtitle="Track every position you create and update current price when you have verified price data." onLogout={onLogout}>
-      <GlassCard>
+    <AppShell username={username} walletAddress={walletAddress} title="Protection Positions." subtitle="Track contract-backed protection, wallet debits, and claim state from one place." onLogout={onLogout}>
+      <section className="grid gap-5 md:grid-cols-3">
+        <StatCard label="Total Positions" value={String(data.positions.length)} detail={`${chainCount} submitted on-chain`} />
+        <StatCard label="Active" value={String(activeCount)} detail="Live protection windows" />
+        <StatCard label="Protected" value={usd(protectedTotal)} detail={`Connected to ${shortAddress(walletAddress)}`} />
+      </section>
+
+      <section className="mt-5">
         {data.positions.length ? (
-          <div className="grid gap-4">
+          <div className="grid gap-5">
             {data.positions.map((position) => (
-              <div key={position.id} className="rounded-2xl border border-[#E1E0CC]/10 p-5">
-                <PositionCard position={position} />
+              <article key={position.id} className="rounded-2xl border border-[#E1E0CC]/10 bg-[#E1E0CC]/5 p-5">
+                <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h2 className="font-serif text-4xl italic text-[#E1E0CC]">{position.asset}</h2>
+                      <StatusBadge status={position.status} />
+                      {position.transactionHash && <StatusBadge status="On-chain" />}
+                    </div>
+                    <p className="mt-3 text-sm text-[#E1E0CC]/45">{position.contractPositionId ? `Contract position #${position.contractPositionId}` : position.id}</p>
+                    {position.transactionHash && (
+                      <a href={stellarExpertTxUrl(position.transactionHash, network)} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 text-sm text-[#E1E0CC]/65 underline-offset-4 transition-colors hover:text-[#E1E0CC] hover:underline">
+                        {compactText(position.transactionHash, 12, 12)}
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    )}
+                  </div>
+                  <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:w-[520px]">
+                    <Info label="Protected" value={usd(position.protectedAmount)} />
+                    <Info label="Fee paid" value={usd(position.feePaid)} />
+                    <Info label="Trigger" value={`$${position.triggerPrice}`} />
+                    <Info label="Current" value={`$${position.currentPrice}`} />
+                    <Info label="Expiry" value={timeLeft(position.expiryTime)} />
+                    <Info label="Claimable" value={usd(position.claimableAmount)} />
+                  </div>
+                </div>
+
+                {position.assetContractId && (
+                  <div className="mt-5 rounded-2xl bg-black/30 p-4">
+                    <p className="text-xs uppercase tracking-[0.25em] text-[#E1E0CC]/35">Asset contract</p>
+                    <p className="mt-2 truncate text-sm text-[#E1E0CC]/60" title={position.assetContractId}>{position.assetContractId}</p>
+                  </div>
+                )}
+
                 {position.status !== 'Claimed' && (
                   <div className="mt-4 flex flex-col gap-3 sm:flex-row">
                     <input value={prices[position.id] || ''} onChange={(event) => setPrices((current) => ({ ...current, [position.id]: event.target.value }))} placeholder="Updated current price" className="w-full rounded-xl border border-[#E1E0CC]/12 bg-black/35 px-4 py-3 text-sm text-[#E1E0CC] outline-none placeholder:text-[#E1E0CC]/25" />
                     <PrimaryButton onClick={() => updatePositionPrice(position.id, Number(prices[position.id]))} disabled={!prices[position.id]}>Update Price</PrimaryButton>
                   </div>
                 )}
-              </div>
+              </article>
             ))}
           </div>
         ) : (
-          <EmptyState title="No Protection Positions" description="Create a position from Protect. Nothing is prefilled or seeded." />
+          <div className="rounded-2xl bg-[#E1E0CC]/5 p-8">
+            <EmptyState title="No Protection Positions" description="Create a contract position from Protect. Nothing is prefilled or seeded." />
+          </div>
         )}
-      </GlassCard>
+      </section>
     </AppShell>
   );
 }
@@ -536,6 +611,224 @@ type PaymentDraft = {
 
 function formatAssetAmount(value: number, asset: string) {
   return `${value.toLocaleString('en-US', { maximumFractionDigits: 7 })} ${asset}`;
+}
+
+type MarketCoin = {
+  id: string;
+  symbol: string;
+  name: string;
+  image: string;
+  currentPrice: number | null;
+  marketCap: number | null;
+  marketCapRank: number | null;
+  totalVolume: number | null;
+  high24h: number | null;
+  low24h: number | null;
+  priceChangePercentage24h: number | null;
+  priceChangePercentage1h: number | null;
+  priceChangePercentage7d: number | null;
+  sparkline: number[];
+  lastUpdated: string | null;
+};
+
+function marketUsd(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return 'Unavailable';
+  if (value < 1) return `$${value.toLocaleString('en-US', { maximumFractionDigits: 8 })}`;
+  return `$${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+}
+
+function compactUsd(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return 'Unavailable';
+  return `$${Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(value)}`;
+}
+
+function percent(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return 'Unavailable';
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(2)}%`;
+}
+
+function SparklineChart({ points, positive }: { points: number[]; positive: boolean }) {
+  if (points.length < 2) {
+    return <div className="flex h-64 items-center justify-center rounded-2xl border border-dashed border-[#E1E0CC]/15 text-sm text-[#E1E0CC]/45">No graph data returned.</div>;
+  }
+
+  const width = 640;
+  const height = 260;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const spread = max - min || 1;
+  const path = points.map((point, index) => {
+    const x = (index / (points.length - 1)) * width;
+    const y = height - ((point - min) / spread) * (height - 24) - 12;
+    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }).join(' ');
+  const fillPath = `${path} L ${width} ${height} L 0 ${height} Z`;
+  const stroke = positive ? '#86efac' : '#fca5a5';
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-64 w-full overflow-visible rounded-2xl bg-black/30">
+      <path d={fillPath} fill={positive ? 'rgba(134,239,172,0.10)' : 'rgba(252,165,165,0.10)'} />
+      <path d={path} fill="none" stroke={stroke} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function Portfolio({ username, walletAddress, onLogout }: { username: string; walletAddress: string; onLogout: () => void }) {
+  const [coins, setCoins] = useState<MarketCoin[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState('');
+  const [provider, setProvider] = useState('');
+  const [lastFetchedAt, setLastFetchedAt] = useState<number | null>(null);
+
+  async function loadMarkets() {
+    setLoading(true);
+    setStatus('');
+
+    try {
+      const response = await fetch('/api/portfolio/markets?perPage=150');
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !Array.isArray(data?.coins)) {
+        throw new Error(data?.message || 'Could not fetch market data.');
+      }
+
+      setCoins(data.coins);
+      setProvider(data.provider || 'Market feed');
+      setLastFetchedAt(data.lastFetchedAt || Date.now());
+      setSelectedId((current) => current || data.coins[0]?.id || '');
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not fetch market data.');
+      setCoins([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadMarkets();
+  }, []);
+
+  const filteredCoins = coins.filter((coin) => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return true;
+    return coin.name.toLowerCase().includes(needle) || coin.symbol.toLowerCase().includes(needle);
+  });
+  const selected = coins.find((coin) => coin.id === selectedId) || coins[0] || null;
+  const selectedPositive = (selected?.priceChangePercentage7d ?? selected?.priceChangePercentage24h ?? 0) >= 0;
+
+  return (
+    <AppShell username={username} walletAddress={walletAddress} title="Portfolio." subtitle="Live coin markets, real logos, and 7-day graphs from the market feed." onLogout={onLogout}>
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_440px]">
+        <div className="rounded-2xl border border-[#E1E0CC]/10 bg-[#E1E0CC]/5 p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-[#E1E0CC]/40">Market list</p>
+              <h2 className="mt-2 font-serif text-4xl italic text-[#E1E0CC]">{coins.length ? `${coins.length} live coins` : 'Live coins'}</h2>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <label className="relative">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#E1E0CC]/35" />
+                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search coins" className="w-full rounded-xl border border-[#E1E0CC]/12 bg-black/35 py-3 pl-11 pr-4 text-sm text-[#E1E0CC] outline-none placeholder:text-[#E1E0CC]/25 focus:border-[#E1E0CC]/45 sm:w-64" />
+              </label>
+              <button type="button" onClick={loadMarkets} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#E1E0CC]/20 px-4 py-3 text-xs uppercase tracking-widest text-[#E1E0CC]/70 transition-colors hover:bg-[#E1E0CC] hover:text-black disabled:cursor-not-allowed disabled:opacity-60">
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {status && <p className="mt-5 rounded-2xl border border-amber-200/20 bg-amber-200/10 p-4 text-sm text-amber-100/80">{status}</p>}
+
+          <div className="mt-5 max-h-[720px] overflow-y-auto pr-1">
+            {loading ? (
+              <div className="grid gap-3">
+                {Array.from({ length: 8 }).map((_, index) => <div key={index} className="h-20 animate-pulse rounded-2xl bg-black/35" />)}
+              </div>
+            ) : filteredCoins.length ? (
+              <div className="grid gap-3">
+                {filteredCoins.map((coin, index) => {
+                  const active = selected?.id === coin.id;
+                  const isStellar = coin.id === 'stellar';
+
+                  return (
+                    <button key={coin.id} type="button" onClick={() => setSelectedId(coin.id)} className={`grid gap-4 rounded-2xl border p-4 text-left transition-colors md:grid-cols-[minmax(0,1fr)_120px_120px] md:items-center ${active ? 'border-[#E1E0CC]/55 bg-[#E1E0CC] text-black' : 'border-[#E1E0CC]/10 bg-black/25 text-[#E1E0CC] hover:border-[#E1E0CC]/35 hover:bg-[#E1E0CC]/10'}`}>
+                      <span className="flex min-w-0 items-center gap-3">
+                        <span className={`flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl ${active ? 'bg-black/10' : 'bg-[#E1E0CC]/10'}`}>
+                          <img src={coin.image} alt={`${coin.name} logo`} className="h-8 w-8" loading="lazy" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-2">
+                            <span className="truncate text-sm font-medium">{coin.name}</span>
+                            {isStellar && <span className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${active ? 'bg-black/10 text-black' : 'bg-[#E1E0CC]/10 text-[#E1E0CC]/55'}`}>Stellar</span>}
+                          </span>
+                          <span className={`mt-1 block text-xs uppercase tracking-[0.2em] ${active ? 'text-black/55' : 'text-[#E1E0CC]/40'}`}>#{coin.marketCapRank || index + 1} {coin.symbol}</span>
+                        </span>
+                      </span>
+                      <span>
+                        <span className={`block text-xs uppercase tracking-[0.2em] ${active ? 'text-black/45' : 'text-[#E1E0CC]/35'}`}>Price</span>
+                        <span className="mt-1 block text-sm">{marketUsd(coin.currentPrice)}</span>
+                      </span>
+                      <span>
+                        <span className={`block text-xs uppercase tracking-[0.2em] ${active ? 'text-black/45' : 'text-[#E1E0CC]/35'}`}>24h</span>
+                        <span className={`mt-1 block text-sm ${coin.priceChangePercentage24h && coin.priceChangePercentage24h < 0 ? 'text-red-200' : active ? 'text-black' : 'text-emerald-200'}`}>{percent(coin.priceChangePercentage24h)}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <EmptyState title="No coins found" description="Try another symbol or refresh the market feed." />
+            )}
+          </div>
+        </div>
+
+        <aside className="rounded-2xl border border-[#E1E0CC]/10 bg-black/45 p-5 xl:sticky xl:top-6 xl:self-start">
+          {selected ? (
+            <div>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex min-w-0 items-center gap-4">
+                  <span className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#E1E0CC]/10">
+                    <img src={selected.image} alt={`${selected.name} logo`} className="h-11 w-11" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate font-serif text-4xl italic text-[#E1E0CC]">{selected.name}</p>
+                    <p className="mt-1 text-xs uppercase tracking-[0.25em] text-[#E1E0CC]/40">{selected.symbol}{selected.id === 'stellar' ? ' on Stellar' : ''}</p>
+                  </div>
+                </div>
+                <StatusBadge status={selectedPositive ? 'Up' : 'Down'} />
+              </div>
+
+              <div className="mt-6">
+                <p className="text-xs uppercase tracking-[0.3em] text-[#E1E0CC]/40">Live rate</p>
+                <p className="mt-2 text-5xl text-[#E1E0CC]">{marketUsd(selected.currentPrice)}</p>
+                <p className="mt-2 text-sm text-[#E1E0CC]/45">{provider}{lastFetchedAt ? ` updated ${new Date(lastFetchedAt).toLocaleTimeString()}` : ''}</p>
+              </div>
+
+              <div className="mt-6">
+                <SparklineChart points={selected.sparkline} positive={selectedPositive} />
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                <Info label="Market cap" value={compactUsd(selected.marketCap)} />
+                <Info label="Volume 24h" value={compactUsd(selected.totalVolume)} />
+                <Info label="1h change" value={percent(selected.priceChangePercentage1h)} />
+                <Info label="7d change" value={percent(selected.priceChangePercentage7d)} />
+                <Info label="24h high" value={marketUsd(selected.high24h)} />
+                <Info label="24h low" value={marketUsd(selected.low24h)} />
+              </div>
+
+              {selected.lastUpdated && <p className="mt-5 text-xs text-[#E1E0CC]/35">Coin timestamp: {new Date(selected.lastUpdated).toLocaleString()}</p>}
+            </div>
+          ) : (
+            <EmptyState title="No market selected" description="Refresh the feed to load live portfolio markets." />
+          )}
+        </aside>
+      </section>
+    </AppShell>
+  );
 }
 
 const agentSuggestions = [
@@ -835,6 +1128,7 @@ export default function DashboardPage({ route }: { route: string }) {
   }
 
   if (route === 'app/protect') return <><Protect username={session.username} walletAddress={session.walletAddress} onLogout={handleLogout} /><Toast /></>;
+  if (route === 'app/portfolio') return <><Portfolio username={session.username} walletAddress={session.walletAddress} onLogout={handleLogout} /><Toast /></>;
   if (route === 'app/positions') return <><Positions username={session.username} walletAddress={session.walletAddress} onLogout={handleLogout} /><Toast /></>;
   if (route === 'app/claims') return <><Claims username={session.username} walletAddress={session.walletAddress} onLogout={handleLogout} /><Toast /></>;
   if (route === 'app/pay-username') return <><PayUsername username={session.username} walletAddress={session.walletAddress} onLogout={handleLogout} /><Toast /></>;

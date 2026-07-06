@@ -22,6 +22,10 @@ export type ProtectionPosition = {
   expiryTime: string;
   status: PositionStatus;
   claimableAmount: number;
+  contractPositionId?: string;
+  transactionHash?: string;
+  assetContractId?: string;
+  payoutAssetContractId?: string;
 };
 
 export type ActivityLog = {
@@ -154,7 +158,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const startTime = new Date().toISOString();
       const record: ProtectionPosition = {
         ...position,
-        id: createId('POS'),
+        id: position.contractPositionId ? `CHAIN-${position.contractPositionId}` : createId('POS'),
         startTime,
         status: 'Active',
         claimableAmount: 0,
@@ -162,9 +166,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       updateData((current) => ({
         positions: [record, ...current.positions],
-        activity: [{ id: createId('ACT'), label: 'Protection Position created.', createdAt: nowLabel() }, ...current.activity],
+        activity: [{ id: createId('ACT'), label: position.transactionHash ? 'Contract Protection Position created.' : 'Protection Position created.', createdAt: nowLabel() }, ...current.activity],
       }));
-      setToast('Protection Position created.');
+      setToast(position.transactionHash ? 'Contract position created.' : 'Protection Position created.');
       window.location.hash = 'app/positions';
     },
     updatePositionPrice: (id, currentPrice) => {

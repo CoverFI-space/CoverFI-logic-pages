@@ -63,6 +63,7 @@ export function FormInput({ label, value, onChange, placeholder, type = 'text' }
 function sidebarHref(item: string) {
   const map: Record<string, string> = {
     Dashboard: '#app/dashboard',
+    Portfolio: '#app/portfolio',
     Protect: '#app/protect',
     Positions: '#app/positions',
     Claims: '#app/claims',

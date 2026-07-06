@@ -25,7 +25,7 @@ export async function findSessionByWallet(walletAddress: string) {
   try {
     response = await fetch(`/api/wallets/${encodeURIComponent(walletAddress)}`);
   } catch {
-    throw new Error('Auth API is not reachable. Start the server with npm.cmd run dev and make sure MONGODB_URI is set in .env.');
+    throw new Error('Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and make sure MONGODB_URI is set in D:\\Stellar\\server\\.env.');
   }
 
   if (response.status === 404) {
@@ -54,13 +54,13 @@ export async function reserveUsername(username: string, walletAddress: string) {
       body: JSON.stringify({ username: username.trim(), walletAddress }),
     });
   } catch {
-    throw new Error('Auth API is not reachable. Start the server with npm.cmd run dev and make sure MONGODB_URI is set in .env.');
+    throw new Error('Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and make sure MONGODB_URI is set in D:\\Stellar\\server\\.env.');
   }
 
   const result = (await response.json().catch(() => null)) as (PrismaSession & { message?: string }) | null;
 
   if (!response.ok || !result) {
-    throw new Error(result?.message || 'Auth API is not reachable. Start the server with npm.cmd run dev and check MONGODB_URI in .env.');
+    throw new Error(result?.message || 'Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and check MONGODB_URI in D:\\Stellar\\server\\.env.');
   }
 
   const session = {
