@@ -39,9 +39,9 @@ async function readApiMessage(response: Response, fallback: string) {
     const contentType = response.headers.get("content-type") || "";
 
     if (contentType.includes("application/json")) {
-      const data = (await response.json().catch(() => null)) as
-        | { message?: string }
-        | null;
+      const data = (await response.json().catch(() => null)) as {
+        message?: string;
+      } | null;
       return data?.message || fallback;
     }
 
@@ -81,7 +81,10 @@ export async function findSessionByWallet(walletAddress: string) {
   }
 
   if (!response.ok) {
-    const message = await readApiMessage(response, "Could not check this wallet username.");
+    const message = await readApiMessage(
+      response,
+      "Could not check this wallet username.",
+    );
     throw new Error(message);
   }
 
