@@ -9,6 +9,10 @@ function getApiBaseUrl() {
     }
   }
 
+  if (import.meta.env.DEV) {
+    return "http://localhost:8890";
+  }
+
   return "";
 }
 
