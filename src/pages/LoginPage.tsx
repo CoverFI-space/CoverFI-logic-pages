@@ -37,6 +37,12 @@ function getSafeNextRoute() {
   return allowedRoutes.includes(nextRoute) ? nextRoute : getAppHomeRoute();
 }
 
+function navigateToAppRoute(route: string) {
+  const normalizedRoute = route.startsWith("app/") ? `/${route}` : `/${route}`;
+  window.history.replaceState({}, "", normalizedRoute);
+  window.location.reload();
+}
+
 export default function LoginPage() {
   const [walletAddress, setWalletAddress] = useState("");
   const [status, setStatus] = useState("");
@@ -46,7 +52,7 @@ export default function LoginPage() {
     const session = getStoredSession();
 
     if (session?.username && session?.walletAddress) {
-      window.location.hash = getSafeNextRoute();
+      navigateToAppRoute(getSafeNextRoute());
     }
   }, []);
 
@@ -62,12 +68,12 @@ export default function LoginPage() {
       const existingSession = await findSessionByWallet(address);
 
       if (existingSession) {
-        window.location.hash = getSafeNextRoute();
+        navigateToAppRoute(getSafeNextRoute());
         return;
       }
 
       createWalletSession(address);
-      window.location.hash = getSafeNextRoute();
+      navigateToAppRoute(getSafeNextRoute());
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Could not connect Freighter.",

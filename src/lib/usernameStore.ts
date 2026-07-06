@@ -1,4 +1,10 @@
-const SESSION_KEY = 'prisma_session';
+import { getApiUrl } from "./api";
+
+const SESSION_KEY = "prisma_session";
+
+function getStorage() {
+  return typeof window !== "undefined" ? window.sessionStorage : null;
+}
 
 export type PrismaSession = {
   username: string;
@@ -7,7 +13,8 @@ export type PrismaSession = {
 
 export function getStoredSession() {
   try {
-    const stored = window.localStorage.getItem(SESSION_KEY);
+    const storage = getStorage();
+    const stored = storage?.getItem(SESSION_KEY);
     return stored ? (JSON.parse(stored) as PrismaSession) : null;
   } catch {
     return null;
@@ -15,13 +22,14 @@ export function getStoredSession() {
 }
 
 export function storeSession(session: PrismaSession) {
-  window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  const storage = getStorage();
+  storage?.setItem(SESSION_KEY, JSON.stringify(session));
   return session;
 }
 
 export function createWalletSession(walletAddress: string) {
   return storeSession({
-    username: '',
+    username: "",
     walletAddress,
   });
 }
@@ -30,19 +38,25 @@ export async function findSessionByWallet(walletAddress: string) {
   let response: Response;
 
   try {
-    response = await fetch(`/api/wallets/${encodeURIComponent(walletAddress)}`);
+    response = await fetch(
+      getApiUrl(`/api/wallets/${encodeURIComponent(walletAddress)}`),
+    );
   } catch {
-    throw new Error('Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and make sure MONGODB_URI is set in D:\\Stellar\\server\\.env.');
+    throw new Error(
+      "Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and make sure MONGODB_URI is set in D:\\Stellar\\server\\.env.",
+    );
   }
 
   if (response.status === 404) {
     return null;
   }
 
-  const result = (await response.json().catch(() => null)) as (PrismaSession & { message?: string }) | null;
+  const result = (await response.json().catch(() => null)) as
+    | (PrismaSession & { message?: string })
+    | null;
 
   if (!response.ok || !result) {
-    throw new Error(result?.message || 'Could not check this wallet username.');
+    throw new Error(result?.message || "Could not check this wallet username.");
   }
 
   return storeSession({
@@ -55,19 +69,26 @@ export async function reserveUsername(username: string, walletAddress: string) {
   let response: Response;
 
   try {
-    response = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    response = await fetch(getApiUrl("/api/auth/register"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: username.trim(), walletAddress }),
     });
   } catch {
-    throw new Error('Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and make sure MONGODB_URI is set in D:\\Stellar\\server\\.env.');
+    throw new Error(
+      "Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and make sure MONGODB_URI is set in D:\\Stellar\\server\\.env.",
+    );
   }
 
-  const result = (await response.json().catch(() => null)) as (PrismaSession & { message?: string }) | null;
+  const result = (await response.json().catch(() => null)) as
+    | (PrismaSession & { message?: string })
+    | null;
 
   if (!response.ok || !result) {
-    throw new Error(result?.message || 'Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and check MONGODB_URI in D:\\Stellar\\server\\.env.');
+    throw new Error(
+      result?.message ||
+        "Auth API is not reachable. Start the backend with cd ..\\server; npm.cmd run dev and check MONGODB_URI in D:\\Stellar\\server\\.env.",
+    );
   }
 
   const session = {
@@ -79,5 +100,5 @@ export async function reserveUsername(username: string, walletAddress: string) {
 }
 
 export function clearStoredSession() {
-  window.localStorage.removeItem(SESSION_KEY);
+  getStorage()?.removeItem(SESSION_KEY);
 }
