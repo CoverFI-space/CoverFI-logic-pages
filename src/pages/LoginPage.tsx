@@ -107,7 +107,9 @@ export default function LoginPage() {
       <div className="absolute inset-0 bg-linear-to-b from-black/35 via-black/45 to-black/80" />
 
       <a
-        href="/"
+        href="https://coverfi.space"
+        target="_blank"
+        rel="noreferrer"
         className="coverfi-nav-link absolute left-6 top-6 z-20 inline-flex items-center gap-2 text-sm text-[#E1E0CC]/75 transition-colors hover:text-[#E1E0CC]">
         <ArrowLeft className="h-4 w-4" />
         Home
