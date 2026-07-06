@@ -5,7 +5,11 @@ import LoginPage from "./pages/LoginPage";
 import NotFoundPage from "./pages/NotFoundPage";
 
 function getRouteFromLocation(location: Location) {
-  const pathname = location.pathname.replace(/^\/+/, "").replace(/\/$/, "");
+  const redirectPath = new URLSearchParams(location.search).get("redirect");
+  const candidatePath = redirectPath
+    ? decodeURIComponent(redirectPath)
+    : location.pathname;
+  const pathname = candidatePath.replace(/^\/+/, "").replace(/\/$/, "");
   const hash = location.hash
     .replace(/^#/, "")
     .replace(/^\/+/, "")
@@ -17,7 +21,7 @@ function getRouteFromLocation(location: Location) {
     return hash.startsWith("app/") ? hash : hash;
   }
 
-  if (!pathname || pathname === "/") return "login";
+  if (!pathname || pathname === "") return "login";
   if (pathname === "login") return "login";
   if (pathname === "dashboard") return "app/dashboard";
   if (pathname.startsWith("app/")) return pathname;
@@ -33,6 +37,18 @@ export default function App() {
   useEffect(() => {
     const onLocationChange = () =>
       setRoute(getRouteFromLocation(window.location));
+
+    const redirectPath = new URLSearchParams(window.location.search).get(
+      "redirect",
+    );
+    if (redirectPath) {
+      const nextPath = decodeURIComponent(redirectPath);
+      const normalizedPath = nextPath.startsWith("/")
+        ? nextPath
+        : `/${nextPath}`;
+      window.history.replaceState({}, "", normalizedPath);
+      setRoute(getRouteFromLocation(window.location));
+    }
 
     window.addEventListener("popstate", onLocationChange);
     window.addEventListener("hashchange", onLocationChange);
