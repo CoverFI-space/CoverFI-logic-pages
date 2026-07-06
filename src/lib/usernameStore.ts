@@ -19,6 +19,13 @@ export function storeSession(session: PrismaSession) {
   return session;
 }
 
+export function createWalletSession(walletAddress: string) {
+  return storeSession({
+    username: '',
+    walletAddress,
+  });
+}
+
 export async function findSessionByWallet(walletAddress: string) {
   let response: Response;
 

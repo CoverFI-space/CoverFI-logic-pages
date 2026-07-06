@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { DashboardLayout, DataTable, EmptyState, FormInput, GlassCard, PrimaryButton, StatCard, StatusBadge } from '../components/dashboard/DashboardComponents';
 import { clearAppProfile, useDepositFree } from '../context/AppContext';
-import { clearStoredSession, getStoredSession } from '../lib/usernameStore';
+import { clearStoredSession, getStoredSession, reserveUsername } from '../lib/usernameStore';
 import { createProtectionPositionOnChain } from '../lib/stellarContracts';
 import type { ProtectionPosition, UserProfile } from '../context/AppContext';
 
@@ -13,6 +13,13 @@ const feeRates: Record<string, number> = {
   '14': 0.012,
   '30': 0.02,
 };
+
+const durationChoices = [
+  { value: '1', label: '1 day', hint: 'Quick' },
+  { value: '7', label: '7 days', hint: 'Short' },
+  { value: '14', label: '14 days', hint: 'Balanced' },
+  { value: '30', label: '30 days', hint: 'Max' },
+];
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-6)}`;
@@ -65,7 +72,7 @@ function AppShell({ username, walletAddress, title, subtitle, children, onLogout
       title={title}
       subtitle={subtitle}
       sidebarItems={['Dashboard', 'Portfolio', 'Protect', 'Positions', 'Claims', 'Pay Username', 'AI Chat', 'Profile']}
-      username={username}
+      username={username || 'New user'}
       walletAddress={walletAddress}
       network={network}
       onNetworkChange={setNetwork}
@@ -84,7 +91,7 @@ function Dashboard({ username, walletAddress, onLogout }: { username: string; wa
   const totalFees = data.positions.reduce((sum, position) => sum + position.feePaid, 0);
 
   return (
-    <AppShell username={username} walletAddress={walletAddress} title={`Welcome back, ${username}.`} subtitle={`Stablecoin Protection Dashboard connected to ${shortAddress(walletAddress)}.`} onLogout={onLogout}>
+    <AppShell username={username} walletAddress={walletAddress} title={`Welcome back, ${username || 'New user'}.`} subtitle={`Stablecoin Protection Dashboard connected to ${shortAddress(walletAddress)}.`} onLogout={onLogout}>
       <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Total Protected" value={usd(totalProtected)} icon={<ShieldCheck className="h-5 w-5" />} />
         <StatCard label="Active Positions" value={String(active.length)} icon={<Clock3 className="h-5 w-5" />} />
@@ -293,15 +300,25 @@ function Protect({ username, walletAddress, onLogout }: { username: string; wall
             </div>
             <FormInput label="Amount to protect" value={amount} onChange={setAmount} type="number" />
 
-            <label className="block">
+            <div className="block">
               <span className="text-xs uppercase tracking-[0.25em] text-[#E1E0CC]/40">Duration</span>
-              <select value={duration} onChange={(event) => setDuration(event.target.value)} className="mt-3 w-full rounded-xl border border-[#E1E0CC]/12 bg-black/35 px-4 py-4 text-sm text-[#E1E0CC] outline-none transition-colors focus:border-[#E1E0CC]/45">
-                <option value="1">1 day</option>
-                <option value="7">7 days</option>
-                <option value="14">14 days</option>
-                <option value="30">30 days</option>
-              </select>
-            </label>
+              <div className="mt-3 grid grid-cols-2 gap-2 rounded-2xl border border-[#E1E0CC]/10 bg-black/35 p-2 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-4">
+                {durationChoices.map((choice) => {
+                  const active = duration === choice.value;
+                  return (
+                    <button
+                      key={choice.value}
+                      type="button"
+                      onClick={() => setDuration(choice.value)}
+                      className={`rounded-xl px-3 py-3 text-left transition-all ${active ? 'bg-[#E1E0CC] text-black shadow-[0_12px_35px_rgba(225,224,204,0.18)]' : 'text-[#E1E0CC]/65 hover:bg-[#E1E0CC]/10 hover:text-[#E1E0CC]'}`}
+                    >
+                      <span className="block text-sm">{choice.label}</span>
+                      <span className="mt-1 block text-[10px] uppercase tracking-[0.2em] opacity-60">{choice.hint}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             <FormInput label="Trigger price" value={triggerPrice} onChange={setTriggerPrice} type="number" />
 
@@ -497,17 +514,60 @@ function Claims({ username, walletAddress, onLogout }: { username: string; walle
   );
 }
 
-function Profile({ username, walletAddress, onLogout }: { username: string; walletAddress: string; onLogout: () => void }) {
-  const { data, profile, updateProfile } = useDepositFree();
+function Profile({ username, walletAddress, onLogout, onUsernameSaved }: { username: string; walletAddress: string; onLogout: () => void; onUsernameSaved: (session: { username: string; walletAddress: string }) => void }) {
+  const { data, profile, updateProfile, setToast } = useDepositFree();
   const [draft, setDraft] = useState(profile);
+  const [usernameDraft, setUsernameDraft] = useState('');
+  const [usernameStatus, setUsernameStatus] = useState('');
+  const [usernameSaving, setUsernameSaving] = useState(false);
   const totalFees = data.positions.reduce((sum, position) => sum + position.feePaid, 0);
   const claimed = data.positions.filter((position) => position.status === 'Claimed').reduce((sum, position) => sum + position.claimableAmount, 0);
+  const usernameError = useMemo(() => {
+    if (!usernameDraft) return '';
+    if (usernameDraft.trim().length < 3) return 'Use at least 3 characters.';
+    if (!/^[a-zA-Z0-9_]+$/.test(usernameDraft.trim())) return 'Use letters, numbers, and underscores only.';
+    return '';
+  }, [usernameDraft]);
+
+  async function claimUsername(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (username || usernameError || usernameDraft.trim().length < 3) return;
+
+    setUsernameSaving(true);
+    setUsernameStatus('');
+
+    try {
+      const nextSession = await reserveUsername(usernameDraft, walletAddress);
+      onUsernameSaved(nextSession);
+      setUsernameDraft('');
+      setToast('Username claimed.');
+    } catch (error) {
+      setUsernameStatus(error instanceof Error ? error.message : 'Could not claim username.');
+    } finally {
+      setUsernameSaving(false);
+    }
+  }
 
   return (
     <AppShell username={username} walletAddress={walletAddress} title="Profile." subtitle="Account details tied to your Freighter identity." onLogout={onLogout}>
       <section>
+        {!username && (
+          <form onSubmit={claimUsername} className="mb-6 rounded-2xl border border-[#E1E0CC]/10 bg-[#E1E0CC]/5 p-5">
+            <p className="text-xs uppercase tracking-[0.3em] text-[#E1E0CC]/40">Claim username</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+              <label>
+                <span className="text-sm text-[#E1E0CC]/60">Choose a unique username for payments and lookups.</span>
+                <input value={usernameDraft} onChange={(event) => setUsernameDraft(event.target.value)} placeholder="your_name" className="mt-3 w-full rounded-xl border border-[#E1E0CC]/12 bg-black/35 px-4 py-3 text-sm text-[#E1E0CC] outline-none transition-colors placeholder:text-[#E1E0CC]/25 focus:border-[#E1E0CC]/45" />
+              </label>
+              <PrimaryButton type="submit" disabled={usernameSaving || !!usernameError || usernameDraft.trim().length < 3}>
+                {usernameSaving ? 'Claiming...' : 'Claim username'}
+              </PrimaryButton>
+            </div>
+            {(usernameError || usernameStatus) && <p className="mt-3 text-sm text-[#E1E0CC]/55">{usernameError || usernameStatus}</p>}
+          </form>
+        )}
         <div className="grid gap-5 md:grid-cols-2">
-          <FormInput label="Username" value={username} onChange={() => undefined} />
+          <FormInput label="Username" value={username || 'Not claimed yet'} onChange={() => undefined} />
           <FormInput label="Wallet address" value={walletAddress} onChange={() => undefined} />
           <FormInput label="Full name" value={draft.fullName} onChange={(value) => setDraft((current) => ({ ...current, fullName: value }))} />
           <FormInput label="City" value={draft.city} onChange={(value) => setDraft((current) => ({ ...current, city: value }))} />
@@ -1114,7 +1174,7 @@ function AiChat({ username, walletAddress, onLogout }: { username: string; walle
 }
 
 export default function DashboardPage({ route }: { route: string }) {
-  const session = getStoredSession();
+  const [session, setSession] = useState(() => getStoredSession());
 
   function handleLogout() {
     clearStoredSession();
@@ -1133,7 +1193,7 @@ export default function DashboardPage({ route }: { route: string }) {
   if (route === 'app/claims') return <><Claims username={session.username} walletAddress={session.walletAddress} onLogout={handleLogout} /><Toast /></>;
   if (route === 'app/pay-username') return <><PayUsername username={session.username} walletAddress={session.walletAddress} onLogout={handleLogout} /><Toast /></>;
   if (route === 'app/ai-chat') return <><AiChat username={session.username} walletAddress={session.walletAddress} onLogout={handleLogout} /><Toast /></>;
-  if (route === 'app/profile') return <><Profile username={session.username} walletAddress={session.walletAddress} onLogout={handleLogout} /><Toast /></>;
+  if (route === 'app/profile') return <><Profile username={session.username} walletAddress={session.walletAddress} onLogout={handleLogout} onUsernameSaved={setSession} /><Toast /></>;
 
   return <><Dashboard username={session.username} walletAddress={session.walletAddress} onLogout={handleLogout} /><Toast /></>;
 }
