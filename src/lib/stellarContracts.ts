@@ -32,6 +32,21 @@ export type ContractPositionReceipt = {
   payoutAssetContractId: string;
 };
 
+export type ProtectionAssetOption = {
+  label: string;
+  symbol: string;
+  configured: boolean;
+};
+
+const configurableAssets = [
+  { label: 'USDC on Stellar', symbol: 'USDC' },
+  { label: 'EURC on Stellar', symbol: 'EURC' },
+  { label: 'PYUSD on Stellar', symbol: 'PYUSD' },
+  { label: 'AQUA Stellar', symbol: 'AQUA' },
+  { label: 'yUSDC Stellar', symbol: 'YUSDC' },
+  { label: 'USDT Stellar', symbol: 'USDT' },
+];
+
 function networkPassphrase(network: StellarNetwork) {
   return network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
 }
@@ -57,16 +72,51 @@ function assetContractId(asset: string, network: StellarNetwork) {
   const symbol = asset.split(/\s+/)[0].toUpperCase();
   const lookupKey = `VITE_${symbol}_${network.toUpperCase()}_CONTRACT_ID`;
   const configured = String(import.meta.env[lookupKey] || '').trim();
+  const issuerKey = `VITE_${symbol}_${network.toUpperCase()}_ISSUER`;
+  const issuer = String(import.meta.env[issuerKey] || '').trim();
 
   if (configured) {
     return configured;
   }
 
-  if (symbol === 'XLM' || symbol === 'XLC') {
+  if (symbol === 'XLM') {
     return xlmAssetContractId(network);
   }
 
-  throw new Error(`No Stellar asset contract is configured for ${symbol}. Add ${lookupKey} to .env, or choose XLM.`);
+  if (issuer) {
+    return new Asset(symbol, issuer).contractId(networkPassphrase(network));
+  }
+
+  throw new Error(`No Stellar asset contract is configured for ${symbol}. Add ${lookupKey} or ${issuerKey} to logic-pages/.env, restart the frontend, or choose XLM.`);
+}
+
+export function getProtectionAssetOptions(network: StellarNetwork): ProtectionAssetOption[] {
+  return [
+    { label: 'XLM Stellar', symbol: 'XLM', configured: true },
+    ...configurableAssets.map((asset) => {
+      const lookupKey = `VITE_${asset.symbol}_${network.toUpperCase()}_CONTRACT_ID`;
+      const issuerKey = `VITE_${asset.symbol}_${network.toUpperCase()}_ISSUER`;
+      const configured = Boolean(
+        String(import.meta.env[lookupKey] || '').trim() ||
+        String(import.meta.env[issuerKey] || '').trim(),
+      );
+      return { ...asset, configured };
+    }),
+  ];
+}
+
+export function getDefaultProtectionAsset(network: StellarNetwork) {
+  return getProtectionAssetOptions(network).find((asset) => asset.configured)?.label || 'XLM Stellar';
+}
+
+function getContractErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+
+  if (message.includes('MissingValue') || message.includes('non-existing value for contract instance')) {
+    return 'The protection contract is deployed but not initialized on this Stellar network. Initialize the engine, vaults, oracle, reserve funding, and oracle prices before creating positions.';
+  }
+
+  return message || 'Could not create contract position.';
 }
 
 function toStroops(amount: number) {
@@ -98,60 +148,64 @@ async function assertWalletNetwork(expectedNetwork: StellarNetwork, expectedPass
 }
 
 export async function createProtectionPositionOnChain(input: CreateProtectionPositionInput): Promise<ContractPositionReceipt> {
-  const passphrase = networkPassphrase(input.network);
-  await assertWalletNetwork(input.network, passphrase);
+  try {
+    const passphrase = networkPassphrase(input.network);
+    await assertWalletNetwork(input.network, passphrase);
 
-  const server = new rpc.Server(rpcUrl(input.network), { allowHttp: false });
-  const source = await server.getAccount(input.userAddress);
-  const engine = new Contract(engineContractId());
-  const protectedAsset = assetContractId(input.asset, input.network);
-  const payoutAsset = protectedAsset;
+    const server = new rpc.Server(rpcUrl(input.network), { allowHttp: false });
+    const source = await server.getAccount(input.userAddress);
+    const engine = new Contract(engineContractId());
+    const protectedAsset = assetContractId(input.asset, input.network);
+    const payoutAsset = protectedAsset;
 
-  const transaction = new TransactionBuilder(source, {
-    fee: BASE_FEE,
-    networkPassphrase: passphrase,
-  })
-    .addOperation(engine.call(
-      'create_position',
-      Address.fromString(input.userAddress).toScVal(),
-      Address.fromString(protectedAsset).toScVal(),
-      Address.fromString(payoutAsset).toScVal(),
-      nativeToScVal(toStroops(input.protectedAmount), { type: 'i128' }),
-      nativeToScVal(BigInt(input.durationSeconds), { type: 'u64' }),
-      nativeToScVal(toPriceInt(input.triggerPrice), { type: 'i128' }),
-    ))
-    .setTimeout(60)
-    .build();
+    const transaction = new TransactionBuilder(source, {
+      fee: BASE_FEE,
+      networkPassphrase: passphrase,
+    })
+      .addOperation(engine.call(
+        'create_position',
+        Address.fromString(input.userAddress).toScVal(),
+        Address.fromString(protectedAsset).toScVal(),
+        Address.fromString(payoutAsset).toScVal(),
+        nativeToScVal(toStroops(input.protectedAmount), { type: 'i128' }),
+        nativeToScVal(BigInt(input.durationSeconds), { type: 'u64' }),
+        nativeToScVal(toPriceInt(input.triggerPrice), { type: 'i128' }),
+      ))
+      .setTimeout(60)
+      .build();
 
-  const preparedTransaction = await server.prepareTransaction(transaction);
-  const signed = await signTransaction(preparedTransaction.toXDR(), {
-    address: input.userAddress,
-    networkPassphrase: passphrase,
-  });
+    const preparedTransaction = await server.prepareTransaction(transaction);
+    const signed = await signTransaction(preparedTransaction.toXDR(), {
+      address: input.userAddress,
+      networkPassphrase: passphrase,
+    });
 
-  if (signed.error || !signed.signedTxXdr) {
-    throw new Error(signed.error?.message || 'Freighter rejected the contract transaction.');
+    if (signed.error || !signed.signedTxXdr) {
+      throw new Error(signed.error?.message || 'Freighter rejected the contract transaction.');
+    }
+
+    const signedTransaction = TransactionBuilder.fromXDR(signed.signedTxXdr, passphrase);
+    const sent = await server.sendTransaction(signedTransaction);
+
+    if (sent.status !== 'PENDING') {
+      const errorResult = sent.errorResult ? sent.errorResult.toXDR('base64') : '';
+      throw new Error(errorResult ? `Contract transaction failed before confirmation: ${errorResult}` : `Contract transaction status: ${sent.status}`);
+    }
+
+    const confirmed = await server.pollTransaction(sent.hash, { attempts: 30 });
+    if (confirmed.status !== 'SUCCESS') {
+      throw new Error(`Contract transaction was not successful: ${confirmed.status}`);
+    }
+
+    const nativeReturn = confirmed.returnValue ? scValToNative(confirmed.returnValue) : null;
+
+    return {
+      transactionHash: sent.hash,
+      contractPositionId: nativeReturn === null || nativeReturn === undefined ? undefined : String(nativeReturn),
+      assetContractId: protectedAsset,
+      payoutAssetContractId: payoutAsset,
+    };
+  } catch (error) {
+    throw new Error(getContractErrorMessage(error));
   }
-
-  const signedTransaction = TransactionBuilder.fromXDR(signed.signedTxXdr, passphrase);
-  const sent = await server.sendTransaction(signedTransaction);
-
-  if (sent.status !== 'PENDING') {
-    const errorResult = sent.errorResult ? sent.errorResult.toXDR('base64') : '';
-    throw new Error(errorResult ? `Contract transaction failed before confirmation: ${errorResult}` : `Contract transaction status: ${sent.status}`);
-  }
-
-  const confirmed = await server.pollTransaction(sent.hash, { attempts: 30 });
-  if (confirmed.status !== 'SUCCESS') {
-    throw new Error(`Contract transaction was not successful: ${confirmed.status}`);
-  }
-
-  const nativeReturn = confirmed.returnValue ? scValToNative(confirmed.returnValue) : null;
-
-  return {
-    transactionHash: sent.hash,
-    contractPositionId: nativeReturn === null || nativeReturn === undefined ? undefined : String(nativeReturn),
-    assetContractId: protectedAsset,
-    payoutAssetContractId: payoutAsset,
-  };
 }

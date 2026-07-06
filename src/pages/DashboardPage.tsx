@@ -38,7 +38,11 @@ import {
   getStoredSession,
   reserveUsername,
 } from "../lib/usernameStore";
-import { createProtectionPositionOnChain } from "../lib/stellarContracts";
+import {
+  createProtectionPositionOnChain,
+  getDefaultProtectionAsset,
+  getProtectionAssetOptions,
+} from "../lib/stellarContracts";
 import { getApiUrl } from "../lib/api";
 import type { ProtectionPosition, UserProfile } from "../context/AppContext";
 
@@ -349,7 +353,7 @@ function Protect({
   onLogout: () => void;
 }) {
   const { createPosition, network } = useDepositFree();
-  const [asset, setAsset] = useState("XLM");
+  const [asset, setAsset] = useState(() => getDefaultProtectionAsset("testnet"));
   const [coinPickerOpen, setCoinPickerOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [duration, setDuration] = useState("7");
@@ -412,6 +416,14 @@ function Protect({
   useEffect(() => {
     fetchCurrentPrice(asset);
   }, [asset]);
+
+  useEffect(() => {
+    const options = getProtectionAssetOptions(network);
+    const selected = options.find((option) => option.label === asset);
+    if (!selected?.configured) {
+      setAsset(getDefaultProtectionAsset(network));
+    }
+  }, [asset, network]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -629,6 +641,7 @@ function Protect({
       {coinPickerOpen && (
         <CoinPicker
           selected={asset}
+          network={network}
           onClose={() => setCoinPickerOpen(false)}
           onSelect={(coin) => {
             setAsset(coin);
@@ -642,24 +655,16 @@ function Protect({
 
 function CoinPicker({
   selected,
+  network,
   onSelect,
   onClose,
 }: {
   selected: string;
+  network: "testnet" | "mainnet";
   onSelect: (coin: string) => void;
   onClose: () => void;
 }) {
-  const coins = [
-    "USDC on Stellar",
-    "EURC on Stellar",
-    "PYUSD on Stellar",
-    "XLM Stellar",
-    "XLC Stellar",
-    "AQUA Stellar",
-    "yUSDC Stellar",
-    "USDT Stellar",
-    "Stellar Asset Code",
-  ];
+  const coins = getProtectionAssetOptions(network);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
@@ -683,11 +688,24 @@ function CoinPicker({
           <div className="grid gap-3 sm:grid-cols-2">
             {coins.map((coin) => (
               <button
-                key={coin}
-                onClick={() => onSelect(coin)}
-                className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left text-sm transition-colors ${selected === coin ? "border-[#E1E0CC]/60 bg-[#E1E0CC] text-black" : "border-[#E1E0CC]/12 text-[#E1E0CC]/75 hover:border-[#E1E0CC]/35 hover:bg-[#E1E0CC]/10"}`}>
-                {coin}
-                {selected === coin && <Check className="h-4 w-4" />}
+                key={coin.label}
+                onClick={() => coin.configured && onSelect(coin.label)}
+                disabled={!coin.configured}
+                title={
+                  coin.configured
+                    ? coin.label
+                    : `Add VITE_${coin.symbol}_${network.toUpperCase()}_CONTRACT_ID or VITE_${coin.symbol}_${network.toUpperCase()}_ISSUER in logic-pages/.env to enable this asset.`
+                }
+                className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${selected === coin.label ? "border-[#E1E0CC]/60 bg-[#E1E0CC] text-black" : "border-[#E1E0CC]/12 text-[#E1E0CC]/75 hover:border-[#E1E0CC]/35 hover:bg-[#E1E0CC]/10"}`}>
+                <span>
+                  <span className="block">{coin.label}</span>
+                  {!coin.configured && (
+                    <span className="mt-1 block text-[10px] uppercase tracking-[0.18em] opacity-60">
+                      Needs contract ID
+                    </span>
+                  )}
+                </span>
+                {selected === coin.label && <Check className="h-4 w-4" />}
               </button>
             ))}
           </div>
@@ -1389,7 +1407,7 @@ function Portfolio({
             </p>
           )}
 
-          <div className="mt-5 max-h-[720px] overflow-y-auto pr-1">
+          <div className="mt-5">
             {loading ? (
               <div className="grid gap-3">
                 {Array.from({ length: 8 }).map((_, index) => (
