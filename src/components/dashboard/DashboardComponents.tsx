@@ -9,7 +9,7 @@ export function GlassCard({ children, className = '' }: { children: ReactNode; c
 
 export function PrimaryButton({ children, onClick, type = 'button', variant = 'solid', className = '', disabled = false }: { children: ReactNode; onClick?: () => void; type?: 'button' | 'submit'; variant?: 'solid' | 'outline'; className?: string; disabled?: boolean }) {
   const styles = variant === 'solid'
-    ? 'bg-[#E1E0CC] text-black hover:scale-[1.02]'
+    ? 'bg-[#E1E0CC] text-black'
     : 'border border-[#E1E0CC]/30 text-[#E1E0CC] hover:bg-[#E1E0CC] hover:text-black';
 
   return (
@@ -28,7 +28,6 @@ export function StatCard({ label, value, detail, icon }: { label: string; value:
           <p className="mt-4 text-2xl text-[#E1E0CC] md:text-3xl">{value}</p>
           {detail && <p className="mt-2 text-xs text-[#E1E0CC]/45">{detail}</p>}
         </div>
-        {icon && <span className="rounded-xl bg-[#E1E0CC]/10 p-3 text-[#E1E0CC]">{icon}</span>}
       </div>
     </GlassCard>
   );
@@ -45,12 +44,13 @@ export function StatusBadge({ status }: { status: string }) {
   return <span className={`rounded-full border px-3 py-1 text-xs ${tone}`}>{status}</span>;
 }
 
-export function FormInput({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string }) {
+export function FormInput({ label, value, onChange, placeholder, type = 'text', step }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string; step?: string }) {
   return (
     <label className="block">
       <span className="text-xs uppercase tracking-[0.25em] text-[#E1E0CC]/40">{label}</span>
       <input
         type={type}
+        step={step}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
@@ -67,6 +67,7 @@ function sidebarHref(item: string) {
     Protect: '#app/protect',
     Positions: '#app/positions',
     Claims: '#app/claims',
+    History: '#app/history',
     Profile: '#app/profile',
     'Pay Username': '#app/pay-username',
     'CoverFi AI': '#app/ai-chat',

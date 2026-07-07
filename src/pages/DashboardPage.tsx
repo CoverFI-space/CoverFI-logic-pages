@@ -45,8 +45,11 @@ import {
   createProtectionPositionOnChain,
   getDefaultProtectionAsset,
   getProtectionAssetOptions,
+  sendPaymentAndCreateReceipt,
 } from "../lib/stellarContracts";
 import { getApiUrl } from "../lib/api";
+import { PrinterReceipt } from "../components/PrinterReceipt";
+import type { ReceiptData } from "../components/PrinterReceipt";
 import type { ProtectionPosition, UserProfile } from "../context/AppContext";
 
 const feeRates: Record<string, number> = {
@@ -134,8 +137,8 @@ function AppShell({
         "Positions",
         "Claims",
         "Pay Username",
+        "History",
         "CoverFi AI",
-        "Docs",
         "Profile",
       ]}
       username={username || "New user"}
@@ -369,6 +372,7 @@ function Protect({
   const [createLoading, setCreateLoading] = useState(false);
   const [priceUpdatedAt, setPriceUpdatedAt] = useState("");
   const [priceProvider, setPriceProvider] = useState("");
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
 
   const protectedAmount = Number(amount) || 0;
   const feePaid = Number((protectedAmount * feeRates[duration]).toFixed(2));
@@ -462,6 +466,17 @@ function Protect({
         assetContractId: receipt.assetContractId,
         payoutAssetContractId: receipt.payoutAssetContractId,
       });
+
+      // Show printer receipt animation
+      setReceiptData({
+        status: 'Success',
+        from: `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`,
+        to: `Protection Contract`,
+        amount: `${protectedAmount} ${asset.split(' ')[0]}`,
+        fee: `${feePaid} ${asset.split(' ')[0]}`,
+        txHash: `${receipt.transactionHash.slice(0, 10)}...${receipt.transactionHash.slice(-6)}`,
+        date: new Date().toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' }),
+      });
     } catch (error) {
       setPriceStatus(
         error instanceof Error
@@ -474,6 +489,13 @@ function Protect({
   }
 
   return (
+    <>
+      {receiptData && (
+        <PrinterReceipt
+          receiptData={receiptData}
+          onClose={() => setReceiptData(null)}
+        />
+      )}
     <AppShell
       username={username}
       walletAddress={walletAddress}
@@ -665,6 +687,7 @@ function Protect({
         />
       )}
     </AppShell>
+    </>
   );
 }
 
@@ -1169,13 +1192,52 @@ function PayUsername({
   walletAddress: string;
   onLogout: () => void;
 }) {
+  const { network } = useDepositFree();
   const [recipient, setRecipient] = useState("");
   const [result, setResult] = useState<{
     username: string;
     walletAddress: string;
   } | null>(null);
+  const [amount, setAmount] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!recipient.trim() || result) {
+      setSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(getApiUrl(`/api/users/search?q=${encodeURIComponent(recipient.trim())}`));
+        const data = await res.json();
+        if (data.users) setSuggestions(data.users);
+      } catch (e) {}
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [recipient, result]);
+
+  useEffect(() => {
+    if (!result) {
+      setHistory([]);
+      return;
+    }
+    async function loadHistory() {
+      try {
+        const res = await fetch(getApiUrl(`/api/payments/${encodeURIComponent(username)}`));
+        const data = await res.json();
+        if (data.payments) {
+          const relevant = data.payments.filter((p: any) => p.participants && p.participants.includes(result!.username.toLowerCase()));
+          setHistory(relevant);
+        }
+      } catch (e) {}
+    }
+    loadHistory();
+  }, [result, username]);
 
   async function lookup(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1187,6 +1249,9 @@ function PayUsername({
       const response = await fetch(
         getApiUrl(`/api/users/${encodeURIComponent(recipient.trim())}`),
       );
+      if (response.status === 404) {
+        throw new Error("Username not found. Please check the spelling.");
+      }
       const data = await response.json().catch(() => null);
 
       if (!response.ok || !data) {
@@ -1203,60 +1268,178 @@ function PayUsername({
     }
   }
 
-  async function copyWallet() {
+  async function handlePay(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (!result?.walletAddress) return;
-    await navigator.clipboard.writeText(result.walletAddress);
-    setStatus("Wallet address copied.");
+    setPaymentLoading(true);
+    setStatus("Preparing payment and receipt. Please sign in Freighter...");
+
+    try {
+      const parsedAmount = Number(amount);
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        throw new Error("Invalid amount.");
+      }
+
+      const txResult = await sendPaymentAndCreateReceipt({
+        userAddress: walletAddress,
+        network,
+        receiverAddress: result.walletAddress,
+        amount: parsedAmount,
+        asset: "XLM",
+        onPaymentSuccess: () => {
+          setStatus("Payment confirmed! Please sign the second transaction to generate the receipt.");
+        }
+      });
+
+      setStatus("Payment successful!");
+      
+      const finalReceiptData = {
+        status: 'Success',
+        from: `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`,
+        to: `${result.username} (${result.walletAddress.slice(0, 6)}...${result.walletAddress.slice(-4)})`,
+        amount: `${parsedAmount} XLM`,
+        fee: `${txResult.feePaid} XLM`,
+        txHash: `${txResult.transactionHash.slice(0, 10)}...${txResult.transactionHash.slice(-6)}`,
+        date: new Date().toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' }),
+      };
+
+      try {
+        await fetch(getApiUrl('/api/payments/save'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sender: username,
+            recipient: result.username,
+            receiptData: finalReceiptData
+          })
+        });
+      } catch (e) {
+        console.error("Failed to save receipt to firebase", e);
+      }
+
+      setReceiptData(finalReceiptData);
+      setAmount("");
+    } catch (error) {
+      setStatus(
+        error instanceof Error ? error.message : "Payment failed.",
+      );
+    } finally {
+      setPaymentLoading(false);
+    }
   }
 
   return (
-    <AppShell
-      username={username}
-      walletAddress={walletAddress}
-      title="Pay Username."
-      subtitle="Look up a registered username and copy the connected wallet address."
-      onLogout={onLogout}>
-      <section className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
-        <form onSubmit={lookup} className="grid gap-4">
-          <FormInput
-            label="Recipient username"
-            value={recipient}
-            onChange={setRecipient}
-          />
-          <PrimaryButton type="submit" disabled={!recipient.trim() || loading}>
-            <Search className="h-4 w-4" />
-            Find username
-          </PrimaryButton>
-        </form>
-        <div className="min-h-44 rounded-2xl bg-[#E1E0CC]/5 p-5">
-          {result ? (
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-[#E1E0CC]/40">
-                Recipient found
-              </p>
-              <h3 className="mt-3 font-serif text-4xl italic">
-                {result.username}
-              </h3>
-              <p
-                className="mt-4 truncate rounded-xl bg-black/35 px-4 py-3 text-sm text-[#E1E0CC]/70"
-                title={result.walletAddress}>
-                {result.walletAddress}
-              </p>
-              <PrimaryButton className="mt-5" onClick={copyWallet}>
-                <Copy className="h-4 w-4" />
-                Copy wallet address
-              </PrimaryButton>
+    <>
+      {receiptData && (
+        <PrinterReceipt
+          receiptData={receiptData}
+          onClose={() => {
+            setReceiptData(null);
+            window.location.hash = '#app/dashboard';
+          }}
+        />
+      )}
+      <AppShell
+        username={username}
+        walletAddress={walletAddress}
+        title="Pay Username."
+        subtitle="Look up a registered username and send them XLM directly."
+        onLogout={onLogout}>
+        <section className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+          <form onSubmit={lookup} className="grid gap-4">
+            <div className="relative">
+              <FormInput
+                label="Recipient username"
+                value={recipient}
+                onChange={(val) => {
+                  setRecipient(val);
+                  setResult(null);
+                }}
+              />
+              {suggestions.length > 0 && !result && (
+                <div className="absolute top-full left-0 right-0 mt-2 z-10 rounded-xl bg-[#111827] border border-[#E1E0CC]/15 shadow-xl max-h-48 overflow-y-auto">
+                  {suggestions.map((u, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className="w-full text-left px-4 py-3 hover:bg-[#E1E0CC]/10 transition-colors text-sm text-[#E1E0CC]/80 flex items-center justify-between"
+                      onClick={() => {
+                        setRecipient(u.username);
+                        setSuggestions([]);
+                        setResult(u);
+                      }}
+                    >
+                      <span className="font-bold">{u.username}</span>
+                      <span className="text-xs text-[#E1E0CC]/40">{shortAddress(u.walletAddress)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          ) : (
-            <EmptyState
-              title="No recipient selected"
-              description="Search a registered username to reveal the connected wallet address."
-            />
-          )}
-          {status && <p className="mt-4 text-sm text-[#E1E0CC]/60">{status}</p>}
-        </div>
-      </section>
-    </AppShell>
+            <PrimaryButton type="submit" disabled={!recipient.trim() || loading}>
+              <Search className="h-4 w-4" />
+              Find username
+            </PrimaryButton>
+          </form>
+          <div className="min-h-44 rounded-2xl bg-[#E1E0CC]/5 p-5">
+            {result ? (
+              <form onSubmit={handlePay}>
+                <p className="text-xs uppercase tracking-[0.3em] text-[#E1E0CC]/40">
+                  Recipient found
+                </p>
+                <h3 className="mt-3 font-serif text-4xl italic">
+                  {result.username}
+                </h3>
+                <p
+                  className="mt-4 truncate rounded-xl bg-black/35 px-4 py-3 text-sm text-[#E1E0CC]/70"
+                  title={result.walletAddress}>
+                  {result.walletAddress}
+                </p>
+                <div className="mt-5">
+                  <FormInput
+                    label="Amount (XLM)"
+                    value={amount}
+                    onChange={setAmount}
+                    type="number"
+                    step="any"
+                  />
+                </div>
+                <PrimaryButton type="submit" className="mt-5" disabled={paymentLoading || !amount}>
+                  <Send className="h-4 w-4" />
+                  {paymentLoading ? "Confirming..." : `Pay ${amount ? `${amount} XLM` : "User"}`}
+                </PrimaryButton>
+              </form>
+            ) : (
+              <EmptyState
+                title="No recipient selected"
+                description="Search a registered username to reveal the connected wallet address and send a payment."
+              />
+            )}
+            {status && <p className="mt-4 text-sm text-[#E1E0CC]/60">{status}</p>}
+          </div>
+        </section>
+
+        {result && history.length > 0 && (
+          <section className="mt-10">
+            <h3 className="mb-4 font-serif text-2xl italic">Payment History with {result.username}</h3>
+            <div className="grid gap-3">
+              {history.map((p, i) => (
+                <GlassCard key={i} className="flex flex-wrap items-center justify-between gap-4 p-4 text-sm">
+                  <div>
+                    <p className="text-[#E1E0CC]/80">{p.receiptData.date}</p>
+                    <p className="text-xs text-[#E1E0CC]/50 mt-1">{p.receiptData.txHash}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold text-[#22c55e]">{p.receiptData.amount}</p>
+                    <p className="text-xs text-[#E1E0CC]/50 mt-1">Fee: {p.receiptData.fee}</p>
+                  </div>
+                </GlassCard>
+              ))}
+            </div>
+          </section>
+        )}
+      </AppShell>
+    </>
   );
 }
 
@@ -2269,6 +2452,73 @@ function AiChat({
   );
 }
 
+function History({
+  username,
+  walletAddress,
+  onLogout,
+}: {
+  username: string;
+  walletAddress: string;
+  onLogout: () => void;
+}) {
+  const [history, setHistory] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(getApiUrl(`/api/payments/${encodeURIComponent(username)}`));
+        const data = await res.json();
+        if (data.payments) setHistory(data.payments);
+      } catch (e) {} finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [username]);
+
+  return (
+    <AppShell
+      username={username}
+      walletAddress={walletAddress}
+      title="Payment History."
+      subtitle="View all your past payments and receipts securely stored in Firebase."
+      onLogout={onLogout}>
+      <section>
+        {loading ? (
+          <p className="text-sm text-[#E1E0CC]/50">Loading history...</p>
+        ) : history.length === 0 ? (
+          <EmptyState
+            title="No payment history"
+            description="You haven't made any payments yet. Go to Pay Username to get started."
+          />
+        ) : (
+          <div className="grid gap-4">
+            {history.map((p, i) => (
+              <GlassCard key={i} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-5">
+                <div>
+                  <div className="flex items-center gap-3">
+                    <StatusBadge status="Confirmed" />
+                    <span className="text-sm text-[#E1E0CC]/70">{p.receiptData.date}</span>
+                  </div>
+                  <p className="mt-3 font-serif text-xl italic text-white">{p.receiptData.to.split(' ')[0]}</p>
+                  <a href={stellarExpertTxUrl(p.receiptData.txHash.replace('...', ''), 'testnet')} target="_blank" rel="noreferrer" className="mt-1 flex items-center gap-1 text-xs text-[#E1E0CC]/40 hover:text-[#E1E0CC]">
+                    {p.receiptData.txHash} <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+                <div className="text-left sm:text-right">
+                  <p className="text-2xl text-[#22c55e]">{p.receiptData.amount}</p>
+                  <p className="mt-1 text-xs text-[#E1E0CC]/50">Fee: {p.receiptData.fee}</p>
+                </div>
+              </GlassCard>
+            ))}
+          </div>
+        )}
+      </section>
+    </AppShell>
+  );
+}
+
 export default function DashboardPage({ route }: { route: string }) {
   const [session, setSession] = useState(() => getStoredSession());
 
@@ -2332,6 +2582,17 @@ export default function DashboardPage({ route }: { route: string }) {
     return (
       <>
         <Claims
+          username={session.username}
+          walletAddress={session.walletAddress}
+          onLogout={handleLogout}
+        />
+        <Toast />
+      </>
+    );
+  if (route === "app/history")
+    return (
+      <>
+        <History
           username={session.username}
           walletAddress={session.walletAddress}
           onLogout={handleLogout}

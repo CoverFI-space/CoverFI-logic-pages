@@ -5,6 +5,7 @@ import {
   BASE_FEE,
   Contract,
   Networks,
+  Operation,
   TransactionBuilder,
   nativeToScVal,
   rpc,
@@ -207,5 +208,135 @@ export async function createProtectionPositionOnChain(input: CreateProtectionPos
     };
   } catch (error) {
     throw new Error(getContractErrorMessage(error));
+  }
+}
+
+export async function sendPaymentAndCreateReceipt(input: {
+  userAddress: string;
+  network: StellarNetwork;
+  receiverAddress: string;
+  amount: number;
+  asset: string;
+  onPaymentSuccess?: () => void;
+}): Promise<{ transactionHash: string; feePaid: number }> {
+  try {
+    const passphrase = networkPassphrase(input.network);
+    await assertWalletNetwork(input.network, passphrase);
+
+    const server = new rpc.Server(rpcUrl(input.network), { allowHttp: false });
+    let source = await server.getAccount(input.userAddress);
+
+    const paymentReceiptRegistryId = String(import.meta.env.VITE_PAYMENT_RECEIPT_REGISTRY_ID || '').trim();
+    if (!paymentReceiptRegistryId) {
+      throw new Error('VITE_PAYMENT_RECEIPT_REGISTRY_ID is missing in .env.');
+    }
+
+    const receiptContract = new Contract(paymentReceiptRegistryId);
+    const paymentAsset = input.asset === 'XLM Stellar' || input.asset === 'XLM'
+      ? Asset.native()
+      : new Asset(
+          input.asset.split(/\s+/)[0].toUpperCase(),
+          String(import.meta.env[`VITE_${input.asset.split(/\s+/)[0].toUpperCase()}_${input.network.toUpperCase()}_ISSUER`] || '').trim()
+        );
+
+    // TX 1: Payment
+    const paymentTxBuilder = new TransactionBuilder(source, {
+      fee: BASE_FEE,
+      networkPassphrase: passphrase,
+    });
+
+    paymentTxBuilder.addOperation(
+      Operation.payment({
+        destination: input.receiverAddress,
+        asset: paymentAsset,
+        amount: input.amount.toString(),
+      })
+    );
+
+    const paymentTx = paymentTxBuilder.setTimeout(60).build();
+    let signed = await signTransaction(paymentTx.toXDR(), {
+      address: input.userAddress,
+      networkPassphrase: passphrase,
+    });
+
+    if (signed.error || !signed.signedTxXdr) {
+      throw new Error(signed.error?.message || 'Freighter rejected the payment transaction.');
+    }
+
+    let signedTransaction = TransactionBuilder.fromXDR(signed.signedTxXdr, passphrase);
+    let sent = await server.sendTransaction(signedTransaction);
+
+    if (sent.status !== 'PENDING') {
+      const errorResult = sent.errorResult ? sent.errorResult.toXDR('base64') : '';
+      throw new Error(errorResult ? `Payment failed before confirmation: ${errorResult}` : `Payment status: ${sent.status}`);
+    }
+
+    let confirmed = await server.pollTransaction(sent.hash, { attempts: 30 });
+    if (confirmed.status !== 'SUCCESS') {
+      console.error("Payment Transaction Failed!", confirmed);
+      const errDetails = (confirmed as any).errorResultXdr || (confirmed as any).resultXdr || confirmed.status;
+      throw new Error(`Payment was not successful: ${confirmed.status}. Check console for details. (XDR: ${errDetails})`);
+    }
+
+    const paymentTxHash = sent.hash;
+    if (input.onPaymentSuccess) {
+      input.onPaymentSuccess();
+    }
+
+    // TX 2: Create Receipt
+    // Need to refresh source account for new sequence number
+    source = await server.getAccount(input.userAddress);
+
+    const receiptTxBuilder = new TransactionBuilder(source, {
+      fee: BASE_FEE,
+      networkPassphrase: passphrase,
+    });
+
+    const zeroBytes32 = new Uint8Array(32);
+    receiptTxBuilder.addOperation(
+      receiptContract.call(
+        'create_receipt',
+        Address.fromString(input.userAddress).toScVal(),
+        Address.fromString(input.receiverAddress).toScVal(),
+        nativeToScVal(paymentTxHash, { type: 'string' }), // actual payment tx hash
+        nativeToScVal(zeroBytes32, { type: 'bytes' }), // receipt_hash
+        nativeToScVal('', { type: 'string' }) // encrypted_receipt_uri
+      )
+    );
+
+    const receiptTx = receiptTxBuilder.setTimeout(60).build();
+    const preparedReceiptTx = await server.prepareTransaction(receiptTx);
+    
+    signed = await signTransaction(preparedReceiptTx.toXDR(), {
+      address: input.userAddress,
+      networkPassphrase: passphrase,
+    });
+
+    if (signed.error || !signed.signedTxXdr) {
+      throw new Error(signed.error?.message || 'Freighter rejected the receipt transaction.');
+    }
+
+    signedTransaction = TransactionBuilder.fromXDR(signed.signedTxXdr, passphrase);
+    sent = await server.sendTransaction(signedTransaction);
+
+    if (sent.status !== 'PENDING') {
+      const errorResult = sent.errorResult ? sent.errorResult.toXDR('base64') : '';
+      throw new Error(errorResult ? `Receipt creation failed: ${errorResult}` : `Receipt creation status: ${sent.status}`);
+    }
+
+    confirmed = await server.pollTransaction(sent.hash, { attempts: 30 });
+    if (confirmed.status !== 'SUCCESS') {
+      console.error("Receipt Transaction Failed!", confirmed);
+      const errDetails = (confirmed as any).errorResultXdr || (confirmed as any).resultXdr || confirmed.status;
+      throw new Error(`Receipt creation was not successful: ${confirmed.status}. Check console for details. (XDR: ${errDetails})`);
+    }
+
+    return {
+      transactionHash: paymentTxHash,
+      feePaid: 0.00002, // Approximate sum
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || '');
+    throw new Error(message || 'Could not send payment and create receipt.');
   }
 }

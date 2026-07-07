@@ -3,6 +3,7 @@ import { AppProvider } from "./context/AppContext";
 import DashboardPage from "./pages/DashboardPage";
 import LoginPage from "./pages/LoginPage";
 import NotFoundPage from "./pages/NotFoundPage";
+import ReceiptPage from "./pages/ReceiptPage";
 
 function getRouteFromLocation(location: Location) {
   const redirectPath = new URLSearchParams(location.search).get("redirect");
@@ -23,6 +24,7 @@ function getRouteFromLocation(location: Location) {
 
   if (!pathname || pathname === "") return "login";
   if (pathname === "login") return "login";
+  if (pathname === "receipt") return "receipt";
   if (pathname === "dashboard") return "app/dashboard";
   if (pathname.startsWith("app/")) return pathname;
 
@@ -60,6 +62,10 @@ export default function App() {
 
   if (route === "login") {
     return <LoginPage />;
+  }
+
+  if (route === "receipt") {
+    return <ReceiptPage />;
   }
 
   if (route === "dashboard" || route.startsWith("app/")) {
