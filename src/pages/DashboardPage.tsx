@@ -135,6 +135,7 @@ function AppShell({
         "Claims",
         "Pay Username",
         "CoverFi AI",
+        "Docs",
         "Profile",
       ]}
       username={username || "New user"}
