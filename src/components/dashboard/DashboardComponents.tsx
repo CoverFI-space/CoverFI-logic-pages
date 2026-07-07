@@ -122,7 +122,7 @@ export function DashboardLayout({ title, subtitle, sidebarItems, username, walle
         <aside className="border-b border-[#E1E0CC]/10 bg-black/70 p-5 backdrop-blur-xl lg:border-b-0 lg:border-r">
           <div className="flex items-center justify-between lg:block">
             <div>
-              <p className="font-serif text-4xl italic leading-none">DepositFree</p>
+              <p className="font-serif text-4xl italic leading-none">CoverFi</p>
               <p className="mt-2 text-xs uppercase tracking-[0.25em] text-[#E1E0CC]/40">Stablecoin Protection</p>
             </div>
             <button onClick={onLogout} className="rounded-xl border border-[#E1E0CC]/15 p-3 text-[#E1E0CC]/65 transition-colors hover:bg-[#E1E0CC] hover:text-black lg:hidden">

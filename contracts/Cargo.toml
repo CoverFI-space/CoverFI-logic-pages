@@ -22,3 +22,4 @@ codegen-units = 1
 opt-level = "z"
 panic = "abort"
 strip = "symbols"
+overflow-checks = true
