@@ -1,6 +1,5 @@
 import {
   AlertTriangle,
-  Bot,
   Calculator,
   Check,
   CheckCircle2,
@@ -20,7 +19,7 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   DashboardLayout,
@@ -32,7 +31,11 @@ import {
   StatCard,
   StatusBadge,
 } from "../components/dashboard/DashboardComponents";
-import { clearAppProfile, useDepositFree } from "../context/AppContext";
+import {
+  clearAppProfile,
+  getAppHomeRoute,
+  useDepositFree,
+} from "../context/AppContext";
 import {
   clearStoredSession,
   getStoredSession,
@@ -131,7 +134,7 @@ function AppShell({
         "Positions",
         "Claims",
         "Pay Username",
-        "AI Chat",
+        "CoverFi AI",
         "Profile",
       ]}
       username={username || "New user"}
@@ -355,6 +358,7 @@ function Protect({
   const { createPosition, network } = useDepositFree();
   const [asset, setAsset] = useState(() => getDefaultProtectionAsset("testnet"));
   const [coinPickerOpen, setCoinPickerOpen] = useState(false);
+  const [durationPickerOpen, setDurationPickerOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [duration, setDuration] = useState("7");
   const [triggerPrice, setTriggerPrice] = useState("0.98");
@@ -368,6 +372,9 @@ function Protect({
   const protectedAmount = Number(amount) || 0;
   const feePaid = Number((protectedAmount * feeRates[duration]).toFixed(2));
   const livePrice = Number(currentPrice) || 0;
+  const selectedDuration =
+    durationChoices.find((choice) => choice.value === duration) ??
+    durationChoices[1];
   const estimatedPayout = Number(
     (protectedAmount * Math.max(0, 1 - livePrice)).toFixed(2),
   );
@@ -521,23 +528,20 @@ function Protect({
               <span className="text-xs uppercase tracking-[0.25em] text-[#E1E0CC]/40">
                 Duration
               </span>
-              <div className="mt-3 grid grid-cols-2 gap-2 rounded-2xl border border-[#E1E0CC]/10 bg-black/35 p-2 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-4">
-                {durationChoices.map((choice) => {
-                  const active = duration === choice.value;
-                  return (
-                    <button
-                      key={choice.value}
-                      type="button"
-                      onClick={() => setDuration(choice.value)}
-                      className={`rounded-xl px-3 py-3 text-left transition-all ${active ? "bg-[#E1E0CC] text-black shadow-[0_12px_35px_rgba(225,224,204,0.18)]" : "text-[#E1E0CC]/65 hover:bg-[#E1E0CC]/10 hover:text-[#E1E0CC]"}`}>
-                      <span className="block text-sm">{choice.label}</span>
-                      <span className="mt-1 block text-[10px] uppercase tracking-[0.2em] opacity-60">
-                        {choice.hint}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <button
+                type="button"
+                onClick={() => setDurationPickerOpen(true)}
+                className="mt-3 flex w-full items-center justify-between gap-3 rounded-xl border border-[#E1E0CC]/12 bg-black/35 px-4 py-4 text-left text-sm text-[#E1E0CC] outline-none transition-colors hover:border-[#E1E0CC]/35">
+                <span className="min-w-0">
+                  <span className="block">{selectedDuration.label}</span>
+                  <span className="mt-1 block text-[10px] uppercase tracking-[0.2em] text-[#E1E0CC]/40">
+                    {selectedDuration.hint}
+                  </span>
+                </span>
+                <span className="shrink-0 text-[#E1E0CC]/40">
+                  Change duration
+                </span>
+              </button>
             </div>
 
             <FormInput
@@ -649,7 +653,77 @@ function Protect({
           }}
         />
       )}
+      {durationPickerOpen && (
+        <DurationPicker
+          selected={duration}
+          onClose={() => setDurationPickerOpen(false)}
+          onSelect={(nextDuration) => {
+            setDuration(nextDuration);
+            setDurationPickerOpen(false);
+          }}
+        />
+      )}
     </AppShell>
+  );
+}
+
+function DurationPicker({
+  selected,
+  onSelect,
+  onClose,
+}: {
+  selected: string;
+  onSelect: (duration: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl border border-[#E1E0CC]/15 bg-black p-5 shadow-2xl">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-[#E1E0CC]/40">
+              Protection duration
+            </p>
+            <h3 className="mt-2 font-serif text-4xl italic text-[#E1E0CC]">
+              Choose duration.
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-[#E1E0CC]/15 p-3 text-[#E1E0CC]/70 hover:bg-[#E1E0CC] hover:text-black"
+            aria-label="Close duration picker">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {durationChoices.map((choice) => {
+            const active = selected === choice.value;
+
+            return (
+              <button
+                key={choice.value}
+                type="button"
+                onClick={() => onSelect(choice.value)}
+                className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-4 text-left transition-colors ${
+                  active
+                    ? "border-[#E1E0CC]/60 bg-[#E1E0CC] text-black"
+                    : "border-[#E1E0CC]/12 text-[#E1E0CC]/75 hover:border-[#E1E0CC]/35 hover:bg-[#E1E0CC]/10"
+                }`}>
+                <span>
+                  <span className="block text-sm">{choice.label}</span>
+                  <span className="mt-1 block text-[10px] uppercase tracking-[0.18em] opacity-60">
+                    {choice.hint}
+                  </span>
+                </span>
+                {active && <Check className="h-4 w-4" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1193,6 +1267,8 @@ type ChatMessage = {
 type StoredChatMessage = {
   message?: string;
   reply?: string;
+  mode?: "chat" | "research";
+  model?: string;
 };
 
 type PaymentDraft = {
@@ -1208,6 +1284,126 @@ type PaymentDraft = {
 
 function formatAssetAmount(value: number, asset: string) {
   return `${value.toLocaleString("en-US", { maximumFractionDigits: 7 })} ${asset}`;
+}
+
+function renderMarkdownInline(text: string) {
+  return text
+    .split(/(`[^`]+`|\*\*[^*]+\*\*)/g)
+    .filter(Boolean)
+    .map((part, index) => {
+      if (part.startsWith("`") && part.endsWith("`")) {
+        return (
+          <code
+            key={`${part}-${index}`}
+            className="rounded bg-[#E1E0CC]/10 px-1.5 py-0.5 text-[0.92em] text-[#E1E0CC]">
+            {part.slice(1, -1)}
+          </code>
+        );
+      }
+
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return (
+          <strong key={`${part}-${index}`} className="font-semibold text-[#E1E0CC]">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+
+      return <span key={`${part}-${index}`}>{part}</span>;
+    });
+}
+
+function MarkdownMessage({ text }: { text: string }) {
+  const lines = text.split(/\r?\n/);
+  const blocks: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    if (line.trim().startsWith("```")) {
+      const code: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index].trim().startsWith("```")) {
+        code.push(lines[index]);
+        index += 1;
+      }
+      index += 1;
+      blocks.push(
+        <pre
+          key={`code-${index}`}
+          className="overflow-x-auto rounded-xl bg-black/45 p-3 text-xs leading-relaxed text-[#E1E0CC]/80">
+          <code>{code.join("\n")}</code>
+        </pre>,
+      );
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const size =
+        heading[1].length === 1
+          ? "text-base"
+          : heading[1].length === 2
+            ? "text-sm"
+            : "text-xs";
+      blocks.push(
+        <p
+          key={`heading-${index}`}
+          className={`${size} font-semibold text-[#E1E0CC]`}>
+          {renderMarkdownInline(heading[2])}
+        </p>,
+      );
+      index += 1;
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(line.trim())) {
+      const items: string[] = [];
+      while (index < lines.length && /^[-*]\s+/.test(lines[index].trim())) {
+        items.push(lines[index].trim().replace(/^[-*]\s+/, ""));
+        index += 1;
+      }
+      blocks.push(
+        <ul key={`ul-${index}`} className="list-disc space-y-1 pl-5">
+          {items.map((item, itemIndex) => (
+            <li key={`${item}-${itemIndex}`}>{renderMarkdownInline(item)}</li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(line.trim())) {
+      const items: string[] = [];
+      while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
+        items.push(lines[index].trim().replace(/^\d+\.\s+/, ""));
+        index += 1;
+      }
+      blocks.push(
+        <ol key={`ol-${index}`} className="list-decimal space-y-1 pl-5">
+          {items.map((item, itemIndex) => (
+            <li key={`${item}-${itemIndex}`}>{renderMarkdownInline(item)}</li>
+          ))}
+        </ol>,
+      );
+      continue;
+    }
+
+    blocks.push(
+      <p key={`p-${index}`} className="leading-relaxed">
+        {renderMarkdownInline(line)}
+      </p>,
+    );
+    index += 1;
+  }
+
+  return <div className="space-y-3">{blocks}</div>;
 }
 
 type MarketCoin = {
@@ -1578,9 +1774,12 @@ function Portfolio({
 
 const agentSuggestions = [
   "Create a payment of 25 XLM to garvit with 0.5% processing fee",
-  "Explain how stablecoin loss protection works",
+  "Explain how CoverFi stablecoin loss protection works",
   "What should I check before claiming a payout?",
 ];
+
+const generalModelOptions = ["deepseek-chat", "deepseek-reasoner"];
+const researchModelOptions = ["deepseek-research", "deepseek-reasoner"];
 
 function parsePaymentDraft(
   text: string,
@@ -1631,10 +1830,37 @@ function AiChat({
   walletAddress: string;
   onLogout: () => void;
 }) {
-  const welcomeMessage: ChatMessage = {
-    sender: "assistant",
-    text: `Welcome ${username}. I can answer DepositFree questions or prepare a username payment draft with a processing fee. I will not send funds without you reviewing it.`,
-  };
+  const { profile, data, network } = useDepositFree();
+  const formRef = useRef<HTMLFormElement>(null);
+  const welcomeMessage = useMemo<ChatMessage>(
+    () => ({
+      sender: "assistant",
+      text: `## CoverFi AI\n\nWelcome ${username || "there"}. I can help with your CoverFi account, protection positions, live market prices, research questions, and review-only username payment drafts.\n\n**Note:** I cannot execute payments. You always review and sign from your own wallet.`,
+    }),
+    [username],
+  );
+  const accountContext = useMemo(
+    () => ({
+      username: username || "New user",
+      walletAddress,
+      network,
+      profile,
+      positions: data.positions.map((position) => ({
+        id: position.id,
+        asset: position.asset,
+        protectedAmount: position.protectedAmount,
+        feePaid: position.feePaid,
+        triggerPrice: position.triggerPrice,
+        currentPrice: position.currentPrice,
+        status: position.status,
+        claimableAmount: position.claimableAmount,
+        expiryTime: position.expiryTime,
+        transactionHash: position.transactionHash || null,
+      })),
+      activity: data.activity.slice(-10),
+    }),
+    [data.activity, data.positions, network, profile, username, walletAddress],
+  );
   const [messages, setMessages] = useState<Array<ChatMessage>>([
     welcomeMessage,
   ]);
@@ -1642,6 +1868,10 @@ function AiChat({
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState<PaymentDraft | null>(null);
+  const [chatMode, setChatMode] = useState<"chat" | "research">("chat");
+  const [generalModel, setGeneralModel] = useState(generalModelOptions[0]);
+  const [researchModel, setResearchModel] = useState(researchModelOptions[0]);
+  const activeModel = chatMode === "research" ? researchModel : generalModel;
 
   useEffect(() => {
     if (!walletAddress) return;
@@ -1698,7 +1928,7 @@ function AiChat({
           ...items,
           {
             sender: "assistant",
-            text: `I found the payment details, but @${parsed.recipientUsername} is not registered yet. Ask them to create a DepositFree username first.`,
+            text: `## Payment Draft\n\n**Status:** Recipient not found\n\n- **Recipient username:** @${parsed.recipientUsername}\n- **Amount:** ${formatAssetAmount(parsed.amount, parsed.asset)}\n- **Processing fee:** ${formatAssetAmount(parsed.processingFee, parsed.asset)} (${(parsed.processingFeeRate * 100).toFixed(2)}%)\n- **Total:** ${formatAssetAmount(parsed.totalAmount, parsed.asset)}\n\nAsk them to create a CoverFi username first, then try again.`,
           },
         ]);
         return true;
@@ -1716,7 +1946,7 @@ function AiChat({
         ...items,
         {
           sender: "assistant",
-          text: `Payment draft ready: ${formatAssetAmount(nextDraft.amount, nextDraft.asset)} to @${nextDraft.recipientUsername}, plus ${formatAssetAmount(nextDraft.processingFee, nextDraft.asset)} processing fee. Review the draft before using the wallet address.`,
+          text: `## Payment Draft\n\n**Status:** Ready for wallet review\n\n- **Recipient:** @${nextDraft.recipientUsername}\n- **Recipient wallet:** \`${nextDraft.recipientWallet}\`\n- **Asset:** ${nextDraft.asset}\n- **Amount:** ${formatAssetAmount(nextDraft.amount, nextDraft.asset)}\n- **Processing fee:** ${formatAssetAmount(nextDraft.processingFee, nextDraft.asset)} (${(nextDraft.processingFeeRate * 100).toFixed(2)}%)\n- **Total to send:** ${formatAssetAmount(nextDraft.totalAmount, nextDraft.asset)}\n- **Sender wallet:** \`${walletAddress}\`\n\n### Next Steps\n\n1. Review the wallet address and total.\n2. Copy the draft if you want to keep a private note.\n3. Sign only from your wallet when you are ready.`,
         },
       ]);
       setStatus("");
@@ -1737,7 +1967,7 @@ function AiChat({
     if (!draft) return;
 
     const text = [
-      `DepositFree payment draft`,
+      `CoverFi payment draft`,
       `Recipient: @${draft.recipientUsername}`,
       `Wallet: ${draft.recipientWallet || "Not found"}`,
       `Amount: ${formatAssetAmount(draft.amount, draft.asset)}`,
@@ -1752,6 +1982,15 @@ function AiChat({
 
   function useSuggestion(value: string) {
     setMessage(value);
+  }
+
+  function submitWithEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    formRef.current?.requestSubmit();
   }
 
   async function send(event: React.FormEvent<HTMLFormElement>) {
@@ -1771,7 +2010,13 @@ function AiChat({
       const response = await fetch(getApiUrl("/api/ai/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed, walletAddress }),
+        body: JSON.stringify({
+          message: trimmed,
+          walletAddress,
+          mode: chatMode,
+          model: activeModel,
+          accountContext,
+        }),
       });
       const data = await response.json().catch(() => null);
 
@@ -1796,10 +2041,10 @@ function AiChat({
     <AppShell
       username={username}
       walletAddress={walletAddress}
-      title="AI Chat."
-      subtitle="Ask about DepositFree or draft a username payment with a processing fee."
+      title="CoverFi AI."
+      subtitle="Ask about CoverFi, your account, live prices, or draft a username payment with a processing fee."
       onLogout={onLogout}>
-      <section className="min-h-[72vh]">
+      <section className="min-h-[72vh] pb-32 lg:pb-28">
         <aside className="hidden">
           <div className="rounded-2xl border border-[#E1E0CC]/10 bg-[#E1E0CC]/5 p-5">
             <div className="flex items-center gap-3">
@@ -1811,7 +2056,7 @@ function AiChat({
                   Agent mode
                 </p>
                 <h2 className="mt-1 text-lg text-[#E1E0CC]">
-                  Payment-aware assistant
+                  CoverFi AI assistant
                 </h2>
               </div>
             </div>
@@ -1826,7 +2071,7 @@ function AiChat({
               </div>
               <div className="flex items-center gap-3 rounded-xl bg-black/25 px-4 py-3">
                 <ShieldCheck className="h-4 w-4 text-[#E1E0CC]" />
-                Review-only payment drafts
+                Review-only CoverFi payment drafts
               </div>
             </div>
           </div>
@@ -1904,19 +2149,61 @@ function AiChat({
         </aside>
 
         <div className="flex min-h-[72vh] flex-col overflow-hidden">
-          <div className="hidden">
+          <div className="mb-4 flex flex-col gap-4 rounded-2xl border border-[#E1E0CC]/10 bg-[#E1E0CC]/5 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <span className="rounded-xl bg-black/45 p-2 text-[#E1E0CC]">
                 <Sparkles className="h-4 w-4" />
               </span>
               <div>
-                <p className="text-sm text-[#E1E0CC]">DepositFree Agent</p>
+                <p className="text-sm text-[#E1E0CC]">CoverFi AI</p>
                 <p className="text-xs text-[#E1E0CC]/45">
-                  DeepSeek for questions, local tools for payment drafts
+                  Account context, live prices, and payment drafts
                 </p>
               </div>
             </div>
-            <StatusBadge status={loading ? "Working" : "Ready"} />
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-xl border border-[#E1E0CC]/15 bg-black/35 p-1">
+                {(["chat", "research"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setChatMode(mode)}
+                    className={`rounded-lg px-3 py-2 text-xs uppercase tracking-widest transition-colors ${
+                      chatMode === mode
+                        ? "bg-[#E1E0CC] text-black"
+                        : "text-[#E1E0CC]/55 hover:text-[#E1E0CC]"
+                    }`}>
+                    {mode === "chat" ? "general" : "research"}
+                  </button>
+                ))}
+              </div>
+              <label className="flex items-center gap-2 rounded-xl border border-[#E1E0CC]/15 bg-black/35 px-3 py-2">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-[#E1E0CC]/40">
+                  Model
+                </span>
+                <select
+                  value={activeModel}
+                  onChange={(event) => {
+                    if (chatMode === "research") {
+                      setResearchModel(event.target.value);
+                      return;
+                    }
+
+                    setGeneralModel(event.target.value);
+                  }}
+                  className="bg-transparent pr-8 text-xs text-[#E1E0CC] outline-none">
+                  {(chatMode === "research"
+                    ? researchModelOptions
+                    : generalModelOptions
+                  ).map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <StatusBadge status={loading ? "Working" : "Ready"} />
+            </div>
           </div>
 
           <div className="flex-1 space-y-4 overflow-y-auto pb-5">
@@ -1925,47 +2212,56 @@ function AiChat({
                 key={`${item.sender}-${index}`}
                 className={`flex gap-3 ${item.sender === "user" ? "justify-end" : "justify-start"}`}>
                 {item.sender === "assistant" && (
-                  <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#E1E0CC] text-black">
-                    <Bot className="h-4 w-4" />
+                  <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#E1E0CC] text-black">
+                    <img src="/logo.png" alt="CoverFi" className="h-6 w-6 object-contain" />
                   </span>
                 )}
                 <div
                   className={`max-w-2xl rounded-2xl px-5 py-4 text-sm leading-relaxed shadow-2xl ${item.sender === "user" ? "bg-[#E1E0CC] text-black" : "border border-[#E1E0CC]/10 bg-black/45 text-[#E1E0CC]/75"}`}>
-                  {item.text}
+                  {item.sender === "assistant" ? (
+                    <MarkdownMessage text={item.text} />
+                  ) : (
+                    item.text
+                  )}
                 </div>
               </div>
             ))}
             {loading && (
               <div className="flex items-center gap-3 text-sm text-[#E1E0CC]/45">
-                <Bot className="h-4 w-4 animate-pulse" />
+                <span className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-lg bg-[#E1E0CC]">
+                  <img src="/logo.png" alt="CoverFi" className="h-5 w-5 animate-pulse object-contain" />
+                </span>
                 Working on it...
               </div>
             )}
           </div>
 
-          {status && <p className="mb-3 text-sm text-[#E1E0CC]/60">{status}</p>}
-          <form onSubmit={send}>
-            <div className="flex flex-col gap-3 rounded-2xl border border-[#E1E0CC]/12 bg-black/35 p-2 sm:flex-row sm:items-end">
-              <textarea
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                placeholder="Ask or create a payment draft..."
-                rows={2}
-                className="max-h-40 min-h-12 w-full resize-none bg-transparent px-3 py-3 text-sm text-[#E1E0CC] outline-none placeholder:text-[#E1E0CC]/25"
-              />
-              <PrimaryButton
-                type="submit"
-                disabled={!message.trim() || loading}
-                className="shrink-0">
-                {loading ? (
-                  <Bot className="h-4 w-4 animate-pulse" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-                Send
-              </PrimaryButton>
-            </div>
-          </form>
+          <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-[#E1E0CC]/10 bg-black/95 px-4 pb-4 pt-3 shadow-[0_-24px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl lg:left-[280px] lg:px-8">
+            {status && <p className="mb-3 text-sm text-[#E1E0CC]/60">{status}</p>}
+            <form ref={formRef} onSubmit={send}>
+              <div className="flex min-h-16 flex-col gap-3 rounded-2xl border border-[#E1E0CC]/12 bg-black p-2 sm:flex-row sm:items-center">
+                <textarea
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  onKeyDown={submitWithEnter}
+                  placeholder="Ask or create a payment draft..."
+                  rows={1}
+                  className="max-h-[4.5rem] min-h-12 w-full resize-none overflow-hidden bg-transparent px-3 py-3 text-sm leading-6 text-[#E1E0CC] outline-none placeholder:text-[#E1E0CC]/25"
+                />
+                <PrimaryButton
+                  type="submit"
+                  disabled={!message.trim() || loading}
+                  className="shrink-0 self-center">
+                  {loading ? (
+                    <Sparkles className="h-4 w-4 animate-pulse" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                  Send
+                </PrimaryButton>
+              </div>
+            </form>
+          </div>
         </div>
       </section>
     </AppShell>
@@ -1975,14 +2271,26 @@ function AiChat({
 export default function DashboardPage({ route }: { route: string }) {
   const [session, setSession] = useState(() => getStoredSession());
 
+  useEffect(() => {
+    if (session) return;
+
+    const nextRoute = route === "dashboard" ? getAppHomeRoute() : route;
+    window.history.replaceState(
+      {},
+      "",
+      `/login?next=${encodeURIComponent(nextRoute)}`,
+    );
+    window.dispatchEvent(new Event("popstate"));
+  }, [route, session]);
+
   function handleLogout() {
     clearStoredSession();
     clearAppProfile();
-    window.location.hash = "login";
+    window.history.replaceState({}, "", "/login");
+    window.dispatchEvent(new Event("popstate"));
   }
 
   if (!session) {
-    window.location.hash = "login";
     return null;
   }
 

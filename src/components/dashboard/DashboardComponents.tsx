@@ -13,7 +13,7 @@ export function PrimaryButton({ children, onClick, type = 'button', variant = 's
     : 'border border-[#E1E0CC]/30 text-[#E1E0CC] hover:bg-[#E1E0CC] hover:text-black';
 
   return (
-    <button type={type} onClick={onClick} disabled={disabled} className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-xs uppercase tracking-widest transition-all disabled:cursor-not-allowed disabled:opacity-55 ${styles} ${className}`}>
+    <button type={type} onClick={onClick} disabled={disabled} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-3 text-center text-xs uppercase tracking-widest transition-all disabled:cursor-not-allowed disabled:opacity-55 sm:px-5 ${styles} ${className}`}>
       {children}
     </button>
   );
@@ -69,7 +69,7 @@ function sidebarHref(item: string) {
     Claims: '#app/claims',
     Profile: '#app/profile',
     'Pay Username': '#app/pay-username',
-    'AI Chat': '#app/ai-chat',
+    'CoverFi AI': '#app/ai-chat',
   };
 
   return map[item] || `#app/${item.toLowerCase().replace(/\s+/g, '-')}`;
@@ -106,30 +106,39 @@ export function EmptyState({ title, description }: { title: string; description:
 }
 
 export function DashboardLayout({ title, subtitle, sidebarItems, username, walletAddress, network, onNetworkChange, children, onLogout }: { title: string; subtitle: string; sidebarItems: string[]; username: string; walletAddress: string; network: StellarNetwork; onNetworkChange: (network: StellarNetwork) => void; children: ReactNode; onLogout: () => void }) {
-  const [currentHash, setCurrentHash] = useState(() => window.location.hash || '#app/dashboard');
+  const getCurrentRouteHash = () => {
+    if (window.location.hash) return window.location.hash;
+    const pathname = window.location.pathname.replace(/^\/+/, '').replace(/\/$/, '');
+    return pathname.startsWith('app/') ? `#${pathname}` : '#app/dashboard';
+  };
+  const [currentHash, setCurrentHash] = useState(getCurrentRouteHash);
 
   useEffect(() => {
-    const onHashChange = () => setCurrentHash(window.location.hash || '#app/dashboard');
+    const onHashChange = () => setCurrentHash(getCurrentRouteHash());
 
     window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+    window.addEventListener('popstate', onHashChange);
+    return () => {
+      window.removeEventListener('hashchange', onHashChange);
+      window.removeEventListener('popstate', onHashChange);
+    };
   }, []);
 
   return (
-    <main className="min-h-screen bg-black text-[#E1E0CC]">
+    <main className="min-h-screen overflow-x-hidden bg-black text-[#E1E0CC]">
       <div className="noise-overlay pointer-events-none fixed inset-0 opacity-[0.12] mix-blend-overlay" />
-      <div className="relative grid min-h-screen lg:grid-cols-[280px_1fr]">
-        <aside className="border-b border-[#E1E0CC]/10 bg-black/70 p-5 backdrop-blur-xl lg:border-b-0 lg:border-r">
+      <div className="relative min-h-screen">
+        <aside className="sticky top-0 z-40 border-b border-[#E1E0CC]/10 bg-black/90 p-4 backdrop-blur-xl sm:p-5 lg:fixed lg:left-0 lg:top-0 lg:h-screen lg:w-[280px] lg:border-b-0 lg:border-r">
           <div className="flex items-center justify-between lg:block">
             <div>
-              <p className="font-serif text-4xl italic leading-none">CoverFi</p>
-              <p className="mt-2 text-xs uppercase tracking-[0.25em] text-[#E1E0CC]/40">Stablecoin Protection</p>
+              <p className="font-serif text-3xl italic leading-none sm:text-4xl">CoverFi</p>
+              <p className="mt-2 text-[10px] uppercase tracking-[0.2em] text-[#E1E0CC]/40 sm:text-xs sm:tracking-[0.25em]">Stablecoin Protection</p>
             </div>
-            <button onClick={onLogout} className="rounded-xl border border-[#E1E0CC]/15 p-3 text-[#E1E0CC]/65 transition-colors hover:bg-[#E1E0CC] hover:text-black lg:hidden">
+            <button onClick={onLogout} className="rounded-xl border border-[#E1E0CC]/15 p-3 text-[#E1E0CC]/65 transition-colors hover:bg-[#E1E0CC] hover:text-black lg:hidden" aria-label="Log out">
               <LogOut className="h-4 w-4" />
             </button>
           </div>
-          <nav className="mt-8 flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
+          <nav className="mt-5 flex gap-2 overflow-x-auto pb-1 lg:mt-8 lg:flex-col lg:overflow-visible lg:pb-0">
             {sidebarItems.map((item) => {
               const href = sidebarHref(item);
               const active = currentHash === href;
@@ -138,7 +147,7 @@ export function DashboardLayout({ title, subtitle, sidebarItems, username, walle
                 <a
                   key={item}
                   href={href}
-                  className={`whitespace-nowrap rounded-xl border px-4 py-3 text-sm transition-colors ${
+                  className={`whitespace-nowrap rounded-xl border px-3 py-2.5 text-xs transition-colors sm:px-4 sm:py-3 sm:text-sm ${
                     active
                       ? 'border-[#E1E0CC]/55 bg-[#E1E0CC] text-black shadow-[0_0_24px_rgba(225,224,204,0.18)]'
                       : 'border-[#E1E0CC]/10 text-[#E1E0CC]/60 hover:border-[#E1E0CC]/25 hover:bg-[#E1E0CC]/10 hover:text-[#E1E0CC]'
@@ -154,13 +163,13 @@ export function DashboardLayout({ title, subtitle, sidebarItems, username, walle
             <p className="mt-3 truncate text-sm text-[#E1E0CC]/65" title={walletAddress}>{walletAddress}</p>
           </div>
         </aside>
-        <section className="p-4 md:p-6 lg:p-8">
+        <section className="min-w-0 p-4 md:p-6 lg:ml-[280px] lg:p-8">
           <header className="mb-8 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="font-serif text-5xl italic leading-none md:text-7xl">{title}</h1>
+            <div className="min-w-0">
+              <h1 className="font-serif text-4xl italic leading-none sm:text-5xl md:text-7xl">{title}</h1>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#E1E0CC]/55">{subtitle}</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
               <div className="inline-flex rounded-xl border border-[#E1E0CC]/15 bg-black/35 p-1">
                 {(['testnet', 'mainnet'] as StellarNetwork[]).map((item) => (
                   <button
@@ -175,11 +184,11 @@ export function DashboardLayout({ title, subtitle, sidebarItems, username, walle
                   </button>
                 ))}
               </div>
-              <a href="#app/profile" className="inline-flex items-center gap-2 rounded-xl border border-[#E1E0CC]/15 px-4 py-3 text-sm text-[#E1E0CC]/70 transition-colors hover:bg-[#E1E0CC] hover:text-black">
+              <a href="#app/profile" className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-xl border border-[#E1E0CC]/15 px-4 py-3 text-sm text-[#E1E0CC]/70 transition-colors hover:bg-[#E1E0CC] hover:text-black">
                 <UserRound className="h-4 w-4" />
-                {username}
+                <span className="truncate">{username}</span>
               </a>
-              <button onClick={onLogout} className="hidden rounded-xl border border-[#E1E0CC]/15 p-3 text-[#E1E0CC]/65 transition-colors hover:bg-[#E1E0CC] hover:text-black lg:inline-flex">
+              <button onClick={onLogout} className="hidden rounded-xl border border-[#E1E0CC]/15 p-3 text-[#E1E0CC]/65 transition-colors hover:bg-[#E1E0CC] hover:text-black lg:inline-flex" aria-label="Log out">
                 <LogOut className="h-4 w-4" />
               </button>
             </div>

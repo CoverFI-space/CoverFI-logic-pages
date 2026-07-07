@@ -21,8 +21,11 @@ function getSafeNextRoute() {
   const queryString = rawHash.includes("?")
     ? rawHash.slice(rawHash.indexOf("?") + 1)
     : window.location.search.slice(1);
-  const nextRoute =
-    new URLSearchParams(queryString).get("next") || getAppHomeRoute();
+  const nextRoute = (
+    new URLSearchParams(queryString).get("next") || getAppHomeRoute()
+  )
+    .replace(/^\/+/, "")
+    .replace(/\/$/, "");
   const allowedRoutes = [
     "app/dashboard",
     "app/protect",
@@ -91,6 +94,15 @@ export default function LoginPage() {
     }
   }
 
+  function handleHomeClick() {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+
+    window.location.assign("https://coverfi.space");
+  }
+
   return (
     <main className="relative min-h-screen overflow-hidden bg-black p-4 text-[#E1E0CC] md:p-6">
       <video
@@ -106,14 +118,13 @@ export default function LoginPage() {
       <div className="noise-overlay pointer-events-none absolute inset-0 opacity-[0.65] mix-blend-overlay" />
       <div className="absolute inset-0 bg-linear-to-b from-black/35 via-black/45 to-black/80" />
 
-      <a
-        href="https://coverfi.space"
-        target="_blank"
-        rel="noreferrer"
+      <button
+        type="button"
+        onClick={handleHomeClick}
         className="coverfi-nav-link absolute left-6 top-6 z-20 inline-flex items-center gap-2 text-sm text-[#E1E0CC]/75 transition-colors hover:text-[#E1E0CC]">
         <ArrowLeft className="h-4 w-4" />
         Home
-      </a>
+      </button>
 
       <section className="relative z-10 flex min-h-[calc(100vh-2rem)] items-center justify-center md:min-h-[calc(100vh-3rem)]">
         <motion.div
