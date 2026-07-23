@@ -1,54 +1,34 @@
-import React, { useRef, useState } from 'react';
-import html2canvas from 'html2canvas';
-import { PaymentReceipt } from '../components/PaymentReceipt';
-import { uploadReceiptToImageKit } from '../lib/imagekit';
+import React, { useEffect, useState } from 'react';
+import { ReceiptPaper } from '../components/PrinterReceipt';
+import type { ReceiptData } from '../components/PrinterReceipt';
+import { asReceiptData, loadLocalPaymentHistory } from '../lib/localRecords';
+import { getStoredSession } from '../lib/usernameStore';
 
 export default function ReceiptPage() {
-  const receiptRef = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState<string>('');
-  const [savedUrl, setSavedUrl] = useState<string | null>(null);
+  const [status, setStatus] = useState<string>('Loading local receipts...');
   const [isLoading, setIsLoading] = useState(false);
+  const [receipts, setReceipts] = useState<ReceiptData[]>([]);
 
-  const handleCaptureAndSave = async () => {
-    if (!receiptRef.current) return;
-    setIsLoading(true);
-    setSavedUrl(null);
-    try {
-      setStatus('Capturing receipt...');
-      const canvas = await html2canvas(receiptRef.current, {
-        backgroundColor: '#F9A8A8',
-        scale: 2, // high DPI for crisp image
-      });
-      const base64Image = canvas.toDataURL('image/png');
-
-      setStatus('Uploading to ImageKit...');
-      const imageUrl = await uploadReceiptToImageKit(base64Image);
-
-      setStatus('Saving to Firebase...');
-      const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8890';
-      const response = await fetch(`${apiBase}/api/receipts/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: 'victor_shoaga',
-          receiptUrl: imageUrl,
-        }),
-      });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.message || 'Failed to save to backend');
+  useEffect(() => {
+    async function loadReceipts() {
+      const session = getStoredSession();
+      if (!session?.username || !session?.walletAddress) {
+        setStatus('Connect a wallet and claim a username before viewing receipts.');
+        return;
       }
 
-      setSavedUrl(imageUrl);
-      setStatus('✅ Receipt saved successfully!');
-    } catch (error: any) {
-      console.error(error);
-      setStatus(`❌ Error: ${error?.message || 'Unknown error'}`);
-    } finally {
+      setIsLoading(true);
+      const nextReceipts = (await loadLocalPaymentHistory(session.walletAddress))
+        .map(asReceiptData)
+        .filter(Boolean) as ReceiptData[];
+
+      setReceipts(nextReceipts);
+      setStatus(nextReceipts.length ? '' : 'No local payment receipts found yet.');
       setIsLoading(false);
     }
-  };
+
+    void loadReceipts();
+  }, []);
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#111', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 20px' }}>
@@ -56,42 +36,16 @@ export default function ReceiptPage() {
         Payment Receipt
       </h1>
       <p style={{ color: '#888', fontSize: '13px', marginBottom: '24px' }}>
-        Preview your receipt below, then capture and save it.
+        Payment receipts are stored locally in this browser after wallet-signed payments.
       </p>
 
-      {/* Action Bar */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
-        <button
-          onClick={handleCaptureAndSave}
-          disabled={isLoading}
-          style={{
-            padding: '12px 32px',
-            background: isLoading ? '#555' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '10px',
-            fontSize: '14px',
-            fontWeight: 700,
-            cursor: isLoading ? 'not-allowed' : 'pointer',
-            boxShadow: '0 4px 20px rgba(99,102,241,0.4)',
-            transition: 'all 0.2s',
-          }}
-        >
-          {isLoading ? 'Processing...' : '📸 Capture & Save Receipt'}
-        </button>
-
-        {status && (
-          <p style={{ color: '#a0a0a0', fontSize: '13px' }}>{status}</p>
-        )}
-        {savedUrl && (
-          <a href={savedUrl} target="_blank" rel="noreferrer" style={{ color: '#6366f1', fontSize: '13px', textDecoration: 'underline' }}>
-            View Uploaded Receipt →
-          </a>
-        )}
+      {isLoading && <p style={{ color: '#a0a0a0', fontSize: '13px' }}>Loading...</p>}
+      {status && <p style={{ color: '#a0a0a0', fontSize: '13px' }}>{status}</p>}
+      <div style={{ display: 'grid', gap: '20px', width: 'min(420px, 100%)', marginTop: '28px' }}>
+        {receipts.map((receipt, index) => (
+          <ReceiptPaper key={`${receipt.txHash || 'receipt'}-${index}`} receiptData={receipt} />
+        ))}
       </div>
-
-      {/* Receipt Preview */}
-      <PaymentReceipt ref={receiptRef} />
     </div>
   );
 }

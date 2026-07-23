@@ -1,8 +1,0 @@
-/target/
-/test_snapshots/
-*.wasm
-
-# Local deployment scripts and data
-*.ps1
-.stellar/
-.env

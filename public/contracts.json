@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "2.0.0",
+  "project": "CoverFi",
+  "updatedAt": "2026-07-19T19:08:00+05:30",
+  "repository": "https://github.com/coverfi-space",
+  "social": {
+    "x": "https://x.com/coverfidotspace",
+    "supportEmail": "support@coverfi.space"
+  },
+  "architecture": {
+    "targetContractCount": 7,
+    "contracts": [
+      "protection_engine",
+      "protected_balance_vault",
+      "reserve_vault",
+      "oracle_adapter",
+      "username_registry",
+      "receipt_registry",
+      "zk_verifier"
+    ]
+  },
+  "networks": {
+    "testnet": {
+      "status": "deployed_initialized",
+      "rpcUrl": "https://soroban-testnet.stellar.org",
+      "networkPassphrase": "Test SDF Network ; September 2015",
+      "adminPublicKey": "GAWITZOKW5IGYWAYCRLHRMYKDD5SYO3KRWF76DIRT3N4SI2UN2PW2IF2",
+      "assets": {
+        "protectedPrincipal": {
+          "symbol": "XLM",
+          "tokenContract": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+          "issuer": null
+        },
+        "premiumAndPayout": {
+          "symbol": "CFTUSD",
+          "displayName": "CoverFi Test USDC",
+          "tokenContract": "CCYYFPYEUIZ65AV2VW6L3EDXCN3TXNZJ3VWTPYPRKG327J5DHTCTHZEG",
+          "issuer": "GAURIMABJITVKDKFMST74M7QFLNLM5QEVIEXPKANIHKONHY5IHQ3PU32",
+          "disclaimer": "Worthless Stellar Testnet asset. Not Circle-issued USDC."
+        }
+      },
+      "contracts": {
+        "protectionEngine": "CDR3FFH3EXSD4DZAI75Y5F2UDVE3OCSEXHV5WHY4BLGISVA4MJNT6Q7L",
+        "protectedBalanceVault": "CD7RS5BZQRHLGCVBH4BCDXQR4TZH5WMKSQFHMDH7GIGFBGDMLEJXLCGJ",
+        "reserveVault": "CANZZ2TNQHMIG46STIMHWFXFJKCM242Z3CI7RDZPCYPSZZ5AXSKDH6GU",
+        "oracleAdapter": "CAEF67I4OMEYFBIFPLRQRM6QUF76SHIFXPDNYGPAYLDFRD7JNO4GL3Q7",
+        "usernameRegistry": "CC5P6SNLLBDT2WOK5VN3DU5T2VI3422NN22DLZE6NSNRZY7FWFCLSAHS",
+        "receiptRegistry": "CABWSHOHYJQ7KDIG5LP6JIRXAWY3UIMGLEZG4B63LFIEJXXMFB3BO3T2",
+        "zkVerifier": "CBFL4CGXLHUO6ONOUPIWFMOVOYR3W77N3LKADUDMBKVQXYXFFHYPHWCU"
+      },
+      "verification": {
+        "deploymentReport": "coverfi-contracts/artifacts/v2-testnet-deployment.generated.json",
+        "smokeTestedAt": null,
+        "wasmHashes": {
+          "oracleAdapter": "133e5469b0a815ef2a8dbf26c1b0922b8669aafb6193721b5d2060d4c37daad8",
+          "reserveVault": "2011e8031f2e0602f4071c413142d30681adf09bcfdc52417ac7ce5991d90ac5",
+          "protectedBalanceVault": "a7be8ed916e23d947d3c5d24a7a4141213eb1d961ced9572c864a2784205ae5b",
+          "protectionEngine": "687324baee11b0bd58a764767cb1c114b80c55f9702d529b334c028c1e8ec95c",
+          "usernameRegistry": "de5286c7d95e90d0d4bd40c6ebf53b55de18b5813cc3c38e125156adc44dca5c",
+          "receiptRegistry": "5a0439aadba8d720969626c6951a6eda10dcf92019dde669b7ae24279ac72857",
+          "zkVerifier": "a0eace54d9fca9f94b178779bd52cd6b6c1af4ba006d05ae018d6d65e9a23313"
+        }
+      }
+    },
+    "mainnet": {
+      "status": "not_deployed",
+      "rpcUrl": "https://mainnet.sorobanrpc.com",
+      "networkPassphrase": "Public Global Stellar Network ; September 2015",
+      "contracts": {
+        "protectionEngine": null,
+        "protectedBalanceVault": null,
+        "reserveVault": null,
+        "oracleAdapter": null,
+        "usernameRegistry": null,
+        "receiptRegistry": null,
+        "zkVerifier": null
+      }
+    }
+  },
+  "legacyDeployments": {
+    "v1": {
+      "status": "legacy_read_only_reference",
+      "network": "testnet",
+      "recordedAt": "2026-07-17T01:43:30.264+05:30",
+      "adminPublicKey": "GAWITZOKW5IGYWAYCRLHRMYKDD5SYO3KRWF76DIRT3N4SI2UN2PW2IF2",
+      "seededAssets": {
+        "xlm": {
+          "tokenContract": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+          "oraclePrice": "18949586",
+          "reserveDepositedStroops": "1000000000"
+        },
+        "legacyTestUsdc": {
+          "tokenContract": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
+        }
+      },
+      "contracts": {
+        "protectionEngine": "CAIDNTTUYR4Y6QIGVNTID73HIJHY4Y6PAALTV7GOYRMRSXKRXFVXDRU4",
+        "protectedBalanceVault": "CCJOHOU4J3AKRBPB74XLCEUYGGFEULBKOKVIOPUQMZJZLQAN3JB4TXLD",
+        "reserveVault": "CBJX4RVARTPYYUCK7D7UTNMLMBXFSD525PY7QJA222UG43AJH2YFDAZM",
+        "oracleAdapter": "CA2IUKPR4OTI74CSBB5ETUL3WZGX3MAOUBRTZ4X3IGEFMALGHQ2ILU4Z",
+        "usernameRegistry": "CA5OPVJCELJ3SFE6CRBUFKL7J7PKVZWRWWYQZRBVLEATVUIOZAA24PBH",
+        "receiptRegistry": "CCVVQPCU4IB6MRNCUCJDSEBMFR3CUQ7RX7BVADWIQBS4WZOSECM32Q6K"
+      }
+    }
+  },
+  "disclaimer": "CoverFi protection is not insurance and does not guarantee a payout. V2 Testnet contract IDs must remain null until a fresh deployment report and smoke test verify them."
+}

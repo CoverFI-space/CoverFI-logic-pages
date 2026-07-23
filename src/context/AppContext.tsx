@@ -1,29 +1,61 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { getApiUrl } from "../lib/api";
 import { getStoredSession } from "../lib/usernameStore";
+import {
+  getUserProtectionPositionsOnChain,
+  type OnChainProtectionPosition,
+} from "../lib/stellarContracts";
+import {
+  readPrivateRecord,
+  removePrivateRecord,
+  writePrivateRecord,
+} from "../lib/encryptedStorage";
 
 export type UserProfile = {
   fullName: string;
   contact: string;
   city: string;
   createdAt: string;
+  email: string;
+  emailVerifiedAt: string;
+  emailSignedAt: string;
+  emailSigner: string;
+  emailProofDigest: string;
+  emailProofScheme: string;
+  mfaEnabledAt: string;
+  mfaSignedAt: string;
+  mfaSigner: string;
+  mfaProofDigest: string;
+  mfaProofScheme: string;
+  mfaProofTxHash: string;
+  mfaProofAnchoredAt: string;
+  kycStatus: string;
+  kycVerifiedAt: string;
+  kycSessionId: string;
+  kycProofDigest: string;
+  kycProofTxHash: string;
+  kycProofAnchoredAt: string;
+  kycProofSigner: string;
 };
 
 export type StellarNetwork = "testnet" | "mainnet";
-export type PositionStatus = "Active" | "Triggered" | "Expired" | "Claimed";
+export type PositionStatus = "Active" | "AwaitingOracle" | "SettledNoPayout" | "Claimable" | "Claimed" | "PrincipalWithdrawn";
 
 export type ProtectionPosition = {
   id: string;
   asset: string;
   protectedAmount: number;
   feePaid: number;
-  triggerPrice: number;
+  entryPrice: number;
   currentPrice: number;
   startTime: string;
   expiryTime: string;
   status: PositionStatus;
   claimableAmount: number;
+  maximumPayout?: number;
+  settlementPrice?: number;
+  payoutClaimed?: boolean;
+  principalWithdrawn?: boolean;
   contractPositionId?: string;
   transactionHash?: string;
   assetContractId?: string;
@@ -54,9 +86,7 @@ type AppContextValue = {
       "id" | "startTime" | "status" | "claimableAmount"
     >,
   ) => void;
-  updatePositionPrice: (id: string, currentPrice: number) => void;
-  claimPosition: (id: string) => void;
-  revokePosition: (id: string) => void;
+  refreshPositions: () => Promise<void>;
   setToast: (message: string) => void;
 };
 
@@ -71,6 +101,26 @@ const defaultProfile: UserProfile = {
     month: "short",
     year: "numeric",
   }),
+  email: "",
+  emailVerifiedAt: "",
+  emailSignedAt: "",
+  emailSigner: "",
+  emailProofDigest: "",
+  emailProofScheme: "",
+  mfaEnabledAt: "",
+  mfaSignedAt: "",
+  mfaSigner: "",
+  mfaProofDigest: "",
+  mfaProofScheme: "",
+  mfaProofTxHash: "",
+  mfaProofAnchoredAt: "",
+  kycStatus: "",
+  kycVerifiedAt: "",
+  kycSessionId: "",
+  kycProofDigest: "",
+  kycProofTxHash: "",
+  kycProofAnchoredAt: "",
+  kycProofSigner: "",
 };
 
 const emptyData: AppData = {
@@ -92,100 +142,228 @@ function nowLabel() {
   });
 }
 
-async function syncAccountToBackend(
+type StoredAccountState = {
+  profile?: Partial<UserProfile>;
+  data?: Partial<AppData>;
+  network?: StellarNetwork;
+};
+
+function normalizePosition(raw: any): ProtectionPosition | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  const entryPrice = Number(raw.entryPrice ?? raw.currentPrice ?? 0);
+
+  return {
+    id: String(raw.id || createId("POS")),
+    asset: String(raw.asset || "XLM Stellar"),
+    protectedAmount: Number(raw.protectedAmount || 0),
+    feePaid: Number(raw.feePaid || 0),
+    entryPrice: Number.isFinite(entryPrice) && entryPrice > 0 ? entryPrice : 1,
+    currentPrice: Number(raw.currentPrice || entryPrice || 1),
+    startTime: String(raw.startTime || new Date().toISOString()),
+    expiryTime: String(raw.expiryTime || new Date().toISOString()),
+    status: ["Active", "AwaitingOracle", "SettledNoPayout", "Claimable", "Claimed", "PrincipalWithdrawn"].includes(raw.status)
+      ? raw.status
+      : "Active",
+    claimableAmount: Number(raw.claimableAmount || 0),
+    maximumPayout: Number(raw.maximumPayout || 0),
+    settlementPrice: Number(raw.settlementPrice || 0),
+    payoutClaimed: Boolean(raw.payoutClaimed),
+    principalWithdrawn: Boolean(raw.principalWithdrawn),
+    contractPositionId: raw.contractPositionId
+      ? String(raw.contractPositionId)
+      : undefined,
+    transactionHash: raw.transactionHash ? String(raw.transactionHash) : undefined,
+    assetContractId: raw.assetContractId ? String(raw.assetContractId) : undefined,
+    payoutAssetContractId: raw.payoutAssetContractId
+      ? String(raw.payoutAssetContractId)
+      : undefined,
+  };
+}
+
+function normalizeAppData(data: Partial<AppData> | undefined): AppData {
+  const positions = Array.isArray(data?.positions)
+    ? data.positions.map(normalizePosition).filter(Boolean)
+    : [];
+  const activity = Array.isArray(data?.activity)
+    ? data.activity.map((item: any) => ({
+        id: String(item?.id || createId("ACT")),
+        label: String(item?.label || "Activity"),
+        createdAt: String(item?.createdAt || nowLabel()),
+      }))
+    : [];
+
+  return {
+    positions: positions as ProtectionPosition[],
+    activity,
+  };
+}
+
+function mapOnChainStatus(status: OnChainProtectionPosition["status"]): PositionStatus {
+  return status;
+}
+
+function assetLabelFromContract(contractId: string) {
+  return contractId ? `Contract ${contractId.slice(0, 6)}...${contractId.slice(-6)}` : "On-chain asset";
+}
+
+function normalizeOnChainPosition(
+  position: OnChainProtectionPosition,
+  existing?: ProtectionPosition,
+): ProtectionPosition {
+  return {
+    id: `CHAIN-${position.id}`,
+    asset: existing?.asset || assetLabelFromContract(position.protectedAssetContractId),
+    protectedAmount: position.protectedAmount,
+    feePaid: position.feePaid,
+    entryPrice: position.entryPrice || existing?.entryPrice || 1,
+    currentPrice: existing?.currentPrice || position.entryPrice || 1,
+    startTime: position.startTime,
+    expiryTime: position.expiryTime,
+    status: mapOnChainStatus(position.status),
+    claimableAmount: position.claimablePayout,
+    maximumPayout: position.maximumPayout,
+    settlementPrice: position.settlementPrice,
+    payoutClaimed: position.payoutClaimed,
+    principalWithdrawn: position.principalWithdrawn,
+    contractPositionId: position.id,
+    transactionHash: existing?.transactionHash,
+    assetContractId: position.protectedAssetContractId,
+    payoutAssetContractId: position.payoutAssetContractId,
+  };
+}
+
+function mergeOnChainPositions(
+  localPositions: ProtectionPosition[],
+  chainPositions: OnChainProtectionPosition[],
+) {
+  const localByChainId = new Map(
+    localPositions
+      .filter((position) => position.contractPositionId)
+      .map((position) => [position.contractPositionId, position]),
+  );
+  const chainRecords = chainPositions.map((position) =>
+    normalizeOnChainPosition(position, localByChainId.get(position.id)),
+  );
+  const chainIds = new Set(chainPositions.map((position) => position.id));
+  const localOnly = localPositions.filter(
+    (position) =>
+      !position.contractPositionId || !chainIds.has(position.contractPositionId),
+  );
+
+  return [...chainRecords.reverse(), ...localOnly];
+}
+
+async function readStoredAccount(walletAddress: string) {
+  if (!walletAddress) return null;
+  return readPrivateRecord<StoredAccountState>("account");
+}
+
+async function syncAccountState(
   walletAddress: string,
   payload: { profile: UserProfile; data: AppData; network: StellarNetwork },
 ) {
   if (!walletAddress) return;
 
   try {
-    await fetch(
-      getApiUrl(`/api/account/${encodeURIComponent(walletAddress)}`),
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-    );
+    await writePrivateRecord("account", payload);
   } catch {
-    // Ignore sync failures so the UI remains usable.
+    // Keep contract-backed flows usable if encrypted convenience storage fails.
   }
-}
-
-function calculateClaimable(protectedAmount: number, currentPrice: number) {
-  const lossPercent = Math.max(0, 1 - currentPrice);
-  return Number((protectedAmount * lossPercent).toFixed(2));
-}
-
-function nextStatus(
-  position: ProtectionPosition,
-  currentPrice: number,
-): PositionStatus {
-  if (position.status === "Claimed") return "Claimed";
-  if (currentPrice <= position.triggerPrice) return "Triggered";
-  if (new Date(position.expiryTime).getTime() <= Date.now()) return "Expired";
-  return "Active";
 }
 
 export function getAppHomeRoute() {
   return "app/dashboard";
 }
 
-export function clearAppProfile() {
-  // Account state is now persisted server-side.
+export async function clearAppProfile() {
+  const session = getStoredSession();
+  if (!session?.walletAddress) return;
+  await removePrivateRecord("account");
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile>(defaultProfile);
   const [data, setData] = useState<AppData>(emptyData);
-  const [network, setNetworkState] = useState<StellarNetwork>("testnet");
+  const [network, setNetworkState] = useState<StellarNetwork>(() => {
+    const session = getStoredSession();
+    return session?.network === "mainnet" ? "mainnet" : "testnet";
+  });
   const [toast, setToast] = useState("");
+  const [storageHydrated, setStorageHydrated] = useState(false);
+
+  async function refreshPositions() {
+    const session = getStoredSession();
+    if (!session?.walletAddress) return;
+    const walletAddress = session.walletAddress;
+    const chainPositions = await getUserProtectionPositionsOnChain({
+      userAddress: walletAddress,
+      walletAddress,
+      network,
+    });
+
+    setData((current) => {
+      const positions = mergeOnChainPositions(current.positions, chainPositions);
+      const next = { ...current, positions };
+      void syncAccountState(walletAddress, {
+        profile,
+        data: next,
+        network,
+      });
+      return next;
+    });
+  }
 
   useEffect(() => {
     const session = getStoredSession();
     const walletAddress = session?.walletAddress ?? "";
-    if (!walletAddress) return;
+    let cancelled = false;
 
-    let ignore = false;
-
-    async function loadAccount() {
-      try {
-        const response = await fetch(
-          getApiUrl(`/api/account/${encodeURIComponent(walletAddress)}`),
-        );
-        const result = await response.json().catch(() => null);
-
-        if (ignore || !response.ok) return;
-
-        if (result?.profile) {
-          setProfile({ ...defaultProfile, ...result.profile });
-        }
-
-        if (result?.data) {
-          setData({ ...emptyData, ...result.data });
-        }
-
-        if (result?.network) {
-          setNetworkState(result.network === "mainnet" ? "mainnet" : "testnet");
-        }
-      } catch {
-        // Ignore load failures and keep defaults.
-      }
+    if (!walletAddress) {
+      setStorageHydrated(true);
+      return;
     }
 
-    void loadAccount();
+    void readStoredAccount(walletAddress)
+      .then((result) => {
+        if (cancelled || !result) return;
+        if (result.profile) {
+          setProfile({ ...defaultProfile, ...result.profile });
+        }
+        if (result.data) {
+          setData(normalizeAppData(result.data));
+        }
+        if (result.network && session?.loginMethod !== "email") {
+          setNetworkState(result.network === "mainnet" ? "mainnet" : "testnet");
+        }
+      })
+      .catch(() => {
+        // Contract state remains available if private cache hydration fails.
+      })
+      .finally(() => {
+        if (!cancelled) setStorageHydrated(true);
+      });
 
     return () => {
-      ignore = true;
+      cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const session = getStoredSession();
+    if (!session?.walletAddress || !storageHydrated) return;
+
+    void refreshPositions().catch(() => {
+      // Keep the browser-local cache usable if RPC or contract hydration fails.
+    });
+  }, [network, storageHydrated]);
 
   function updateData(updater: (current: AppData) => AppData) {
     setData((current) => {
       const next = updater(current);
       const session = getStoredSession();
       if (session?.walletAddress) {
-        void syncAccountToBackend(session.walletAddress, {
+        void syncAccountState(session.walletAddress, {
           profile,
           data: next,
           network,
@@ -202,10 +380,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       network,
       toast,
       setNetwork: (nextNetwork) => {
-        setNetworkState(nextNetwork);
         const session = getStoredSession();
+        if (session?.loginMethod === "email" && session.network && session.network !== nextNetwork) {
+          setToast(`Email wallet is locked to Stellar ${session.network}.`);
+          return;
+        }
+
+        setNetworkState(nextNetwork);
         if (session?.walletAddress) {
-          void syncAccountToBackend(session.walletAddress, {
+          void syncAccountState(session.walletAddress, {
             profile,
             data,
             network: nextNetwork,
@@ -221,7 +404,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setProfile(nextProfile);
         const session = getStoredSession();
         if (session?.walletAddress) {
-          void syncAccountToBackend(session.walletAddress, {
+          void syncAccountState(session.walletAddress, {
             profile: nextProfile,
             data,
             network,
@@ -239,6 +422,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           startTime,
           status: "Active",
           claimableAmount: 0,
+          principalWithdrawn: false,
         };
 
         updateData((current) => ({
@@ -261,66 +445,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         );
         window.location.hash = "app/positions";
       },
-      updatePositionPrice: (id, currentPrice) => {
-        updateData((current) => {
-          const positions = current.positions.map((position) => {
-            if (position.id !== id) return position;
-            const status = nextStatus(position, currentPrice);
-            return {
-              ...position,
-              currentPrice,
-              status,
-              claimableAmount:
-                status === "Triggered"
-                  ? calculateClaimable(position.protectedAmount, currentPrice)
-                  : position.claimableAmount,
-            };
-          });
-          return {
-            ...current,
-            positions,
-            activity: [
-              {
-                id: createId("ACT"),
-                label: "Current price updated.",
-                createdAt: nowLabel(),
-              },
-              ...current.activity,
-            ],
-          };
-        });
-        setToast("Current price updated.");
-      },
-      claimPosition: (id) => {
-        updateData((current) => ({
-          positions: current.positions.map((position) =>
-            position.id === id ? { ...position, status: "Claimed" } : position,
-          ),
-          activity: [
-            {
-              id: createId("ACT"),
-              label: "Loss Payout claimed.",
-              createdAt: nowLabel(),
-            },
-            ...current.activity,
-          ],
-        }));
-        setToast("Loss Payout claimed.");
-      },
-      revokePosition: (id) => {
-        updateData((current) => ({
-          positions: current.positions.filter((position) => position.id !== id),
-          activity: [
-            {
-              id: createId("ACT"),
-              label: "Protection revoked by user.",
-              createdAt: nowLabel(),
-            },
-            ...current.activity,
-          ],
-        }));
-        setToast("Protection revoked. Fees paid are non-refundable.");
-      },
+      refreshPositions,
       setToast,
     }),
     [data, network, profile, toast],

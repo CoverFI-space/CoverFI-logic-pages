@@ -7,6 +7,7 @@ export interface ReceiptData {
   amount: string;
   fee: string;
   txHash: string;
+  receiptHash?: string;
   date: string;
 }
 
@@ -193,7 +194,10 @@ const ReceiptContent: React.FC<{ data: ReceiptData; isPreview?: boolean }> = ({ 
     { label: 'To', value: data.to },
     { label: 'Amount', value: data.amount },
     { label: 'Fee', value: data.fee },
-    { label: 'Tx Hash', value: data.txHash },
+    { label: 'Tx Hash', value: data.txHash.length > 22 ? data.txHash.slice(0, 12) + '...' + data.txHash.slice(-8) : data.txHash },
+    ...(data.receiptHash
+      ? [{ label: 'Receipt Hash', value: data.receiptHash.length > 22 ? data.receiptHash.slice(0, 12) + '...' + data.receiptHash.slice(-8) : data.receiptHash }]
+      : []),
     { label: 'Date', value: data.date },
   ];
 
@@ -206,10 +210,25 @@ const ReceiptContent: React.FC<{ data: ReceiptData; isPreview?: boolean }> = ({ 
           <span style={valueStyle}>{value}</span>
         </div>
       ))}
-      <div style={styles.success}>Payment Confirmed ✓</div>
+      <div style={styles.success}>Payment Confirmed</div>
     </div>
   );
 };
+
+export const ReceiptPaper: React.FC<{ receiptData: ReceiptData }> = ({ receiptData }) => (
+  <div
+    style={{
+      ...styles.previewCard,
+      width: '100%',
+      maxHeight: 'none',
+      overflowY: 'visible',
+      boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
+      animation: 'none',
+    }}
+  >
+    <ReceiptContent data={receiptData} isPreview />
+  </div>
+);
 
 export const PrinterReceipt: React.FC<PrinterReceiptProps> = ({ receiptData, onClose }) => {
   const [isPrinting, setIsPrinting] = useState(false);
@@ -271,12 +290,12 @@ export const PrinterReceipt: React.FC<PrinterReceiptProps> = ({ receiptData, onC
         </div>
       )}
 
-      {/* Preview modal — pops up after animation ends */}
+      {/* Preview modal opens after the print animation ends. */}
       {showPreview && (
         <div style={styles.modal}>
           <div style={styles.previewCard}>
-            <button style={styles.previewClose} onClick={onClose}>
-              ×
+            <button style={styles.previewClose} onClick={onClose} aria-label="Close receipt preview">
+              X
             </button>
             <ReceiptContent data={receiptData} isPreview />
           </div>

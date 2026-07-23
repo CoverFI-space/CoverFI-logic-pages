@@ -9,22 +9,27 @@
     "preview": "vite preview --host localhost"
   },
   "dependencies": {
+    "@creit.tech/stellar-wallets-kit": "^2.5.0",
+    "@didit-protocol/sdk-web": "^0.2.1",
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^16.0.1",
     "@vitejs/plugin-react": "latest",
+    "buffer": "^6.0.3",
     "concurrently": "^10.0.3",
     "framer-motion": "latest",
-    "html2canvas": "^1.4.1",
     "lucide-react": "latest",
+    "qrcode": "^1.5.4",
     "react": "latest",
     "react-dom": "latest",
-    "typescript": "latest",
+    "typescript": "^7.0.2",
     "vite": "latest"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.2",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "tailwindcss": "latest"
+    "tailwindcss": "latest",
+    "vercel": "^55.0.0"
   }
 }

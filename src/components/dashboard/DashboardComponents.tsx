@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import { LogOut, UserRound } from 'lucide-react';
+import { Bot, LogOut, UserRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { StellarNetwork } from '../../context/AppContext';
+import CofiAiPanel from './CofiAiPanel';
 
 export function GlassCard({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <div className={`liquid-glass rounded-2xl p-5 ${className}`}>{children}</div>;
@@ -65,12 +66,14 @@ function sidebarHref(item: string) {
     Dashboard: '#app/dashboard',
     Portfolio: '#app/portfolio',
     Protect: '#app/protect',
+    'Asset Flow': '#app/asset-flow',
+    'Protocol Status': '#app/protocol-status',
     Positions: '#app/positions',
     Claims: '#app/claims',
     History: '#app/history',
     Profile: '#app/profile',
     'Pay Username': '#app/pay-username',
-    'CoverFi AI': '#app/ai-chat',
+    'QR Service': '#app/qr-service',
   };
 
   return map[item] || `#app/${item.toLowerCase().replace(/\s+/g, '-')}`;
@@ -79,7 +82,21 @@ function sidebarHref(item: string) {
 export function DataTable({ headers, rows }: { headers: string[]; rows: Array<Array<ReactNode>> }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-[#E1E0CC]/10">
-      <div className="overflow-x-auto">
+      <div className="grid gap-3 p-3 md:hidden">
+        {rows.length ? rows.map((row, index) => (
+          <div key={`mobile-row-${index}`} className="rounded-xl border border-[#E1E0CC]/10 bg-[#E1E0CC]/5 p-3">
+            {row.map((cell, cellIndex) => (
+              <div key={`${cellIndex}-${String(cell)}`} className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 py-2 text-sm">
+                <span className="text-xs uppercase tracking-[0.18em] text-[#E1E0CC]/35">{headers[cellIndex] || 'Detail'}</span>
+                <span className="min-w-0 break-words text-[#E1E0CC]/72">{cell}</span>
+              </div>
+            ))}
+          </div>
+        )) : (
+          <div className="p-4 text-center text-sm text-[#E1E0CC]/45">No records yet.</div>
+        )}
+      </div>
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full min-w-[640px] text-left text-sm">
           <thead className="bg-[#E1E0CC]/5 text-xs uppercase tracking-[0.2em] text-[#E1E0CC]/40">
             <tr>{headers.map((header) => <th key={header} className="px-4 py-4 font-normal">{header}</th>)}</tr>
@@ -113,6 +130,7 @@ export function DashboardLayout({ title, subtitle, sidebarItems, username, walle
     return pathname.startsWith('app/') ? `#${pathname}` : '#app/dashboard';
   };
   const [currentHash, setCurrentHash] = useState(getCurrentRouteHash);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   useEffect(() => {
     const onHashChange = () => setCurrentHash(getCurrentRouteHash());
@@ -129,7 +147,7 @@ export function DashboardLayout({ title, subtitle, sidebarItems, username, walle
     <main className="min-h-screen overflow-x-hidden bg-black text-[#E1E0CC]">
       <div className="noise-overlay pointer-events-none fixed inset-0 opacity-[0.12] mix-blend-overlay" />
       <div className="relative min-h-screen">
-        <aside className="sticky top-0 z-40 border-b border-[#E1E0CC]/10 bg-black/90 p-4 backdrop-blur-xl sm:p-5 lg:fixed lg:left-0 lg:top-0 lg:h-screen lg:w-[280px] lg:border-b-0 lg:border-r">
+        <aside className="sticky top-0 z-40 border-b border-[#E1E0CC]/10 bg-black/90 p-4 backdrop-blur-xl sm:p-5 lg:fixed lg:left-0 lg:top-0 lg:flex lg:h-screen lg:w-[280px] lg:flex-col lg:border-b-0 lg:border-r">
           <div className="flex items-center justify-between lg:block">
             <div>
               <p className="font-serif text-3xl italic leading-none sm:text-4xl">CoverFi</p>
@@ -139,7 +157,7 @@ export function DashboardLayout({ title, subtitle, sidebarItems, username, walle
               <LogOut className="h-4 w-4" />
             </button>
           </div>
-          <nav className="mt-5 flex gap-2 overflow-x-auto pb-1 lg:mt-8 lg:flex-col lg:overflow-visible lg:pb-0">
+          <nav className="mt-5 flex gap-2 overflow-x-auto pb-1 lg:mt-8 lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-y-auto lg:pb-4 lg:pr-1">
             {sidebarItems.map((item) => {
               const href = sidebarHref(item);
               const active = currentHash === href;
@@ -159,12 +177,12 @@ export function DashboardLayout({ title, subtitle, sidebarItems, username, walle
               );
             })}
           </nav>
-          <div className="mt-8 hidden rounded-2xl border border-[#E1E0CC]/10 p-4 lg:block">
+          <div className="mt-4 hidden rounded-2xl border border-[#E1E0CC]/10 p-4 lg:block">
             <p className="text-xs uppercase tracking-[0.25em] text-[#E1E0CC]/35">Connected</p>
             <p className="mt-3 truncate text-sm text-[#E1E0CC]/65" title={walletAddress}>{walletAddress}</p>
           </div>
         </aside>
-        <section className="min-w-0 p-4 md:p-6 lg:ml-[280px] lg:p-8">
+        <section className="min-w-0 p-4 pb-24 md:p-6 lg:ml-[280px] lg:p-8">
           <header className="mb-8 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0">
               <h1 className="font-serif text-4xl italic leading-none sm:text-5xl md:text-7xl">{title}</h1>
@@ -196,7 +214,34 @@ export function DashboardLayout({ title, subtitle, sidebarItems, username, walle
           </header>
           {children}
         </section>
+        <button
+          type="button"
+          onClick={() => setAssistantOpen(true)}
+          className="fixed bottom-24 right-5 z-40 inline-flex items-center gap-2 rounded-full border border-violet-200/35 bg-[#17131f]/95 px-4 py-3 text-xs font-medium uppercase tracking-widest text-violet-100 shadow-[0_14px_42px_rgba(0,0,0,.42)] backdrop-blur-xl transition hover:border-violet-100 hover:bg-violet-100 hover:text-black lg:bottom-8 lg:right-8"
+          aria-label="Open CoverFi AI assistant">
+          <Bot className="h-4 w-4" /> CoFi AI
+        </button>
+        <nav className="fixed inset-x-3 bottom-3 z-50 grid grid-cols-5 gap-1 rounded-2xl border border-[#E1E0CC]/12 bg-black/88 p-1.5 shadow-[0_16px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl lg:hidden" aria-label="Primary mobile navigation">
+          {['Dashboard', 'Protect', 'Pay Username', 'Claims', 'Profile'].map((item) => {
+            const href = sidebarHref(item);
+            const active = currentHash === href;
+            return (
+              <a
+                key={item}
+                href={href}
+                className={`flex min-h-12 items-center justify-center rounded-xl px-1 text-center text-[10px] font-medium leading-tight transition-colors ${
+                  active
+                    ? 'bg-[#E1E0CC] text-black'
+                    : 'text-[#E1E0CC]/58 hover:bg-[#E1E0CC]/10 hover:text-[#E1E0CC]'
+                }`}
+              >
+                {item === 'Pay Username' ? 'Pay' : item}
+              </a>
+            );
+          })}
+        </nav>
       </div>
+      <CofiAiPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} username={username} walletAddress={walletAddress} />
     </main>
   );
 }

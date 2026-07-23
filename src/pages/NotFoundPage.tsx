@@ -1,5 +1,6 @@
-import { ArrowLeft, Home } from "lucide-react";
+import { Activity, ArrowLeft, Home } from "lucide-react";
 import { motion } from "framer-motion";
+import { publicStatusUrl } from "../lib/links";
 
 export default function NotFoundPage() {
   return (
@@ -31,12 +32,22 @@ export default function NotFoundPage() {
             to CoverFi and continue from the home experience.
           </p>
 
-          <a
-            href="/"
-            className="mt-8 inline-flex items-center justify-center gap-2 rounded-xl bg-[#E1E0CC] px-6 py-4 text-sm uppercase tracking-widest text-black transition-transform hover:scale-[1.02]">
-            <Home className="h-4 w-4" />
-            Go to home
-          </a>
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            <a
+              href="/"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#E1E0CC] px-6 py-4 text-sm uppercase tracking-widest text-black transition-transform hover:scale-[1.02]">
+              <Home className="h-4 w-4" />
+              Go to home
+            </a>
+            <a
+              href={publicStatusUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#E1E0CC]/25 px-6 py-4 text-sm uppercase tracking-widest text-[#E1E0CC] transition-colors hover:bg-[#E1E0CC] hover:text-black">
+              <Activity className="h-4 w-4" />
+              Status
+            </a>
+          </div>
         </motion.div>
       </section>
     </main>
