@@ -3331,9 +3331,6 @@ function PayUsername({
     setStatus("Preparing payment and receipt. Review the resolved Stellar address in your selected wallet before signing.");
 
     try {
-      if (requiresRealWallet) {
-        throw new Error("Connect a Stellar wallet before sending username payments.");
-      }
       if (!username) {
         throw new Error("Claim a CoverFi username before sending username payments.");
       }

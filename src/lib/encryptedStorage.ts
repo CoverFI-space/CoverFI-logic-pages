@@ -118,10 +118,7 @@ function openPrivateDatabase() {
   });
 }
 
-function requireStorageSession() {
-  if (!activeSession) {
-    throw new Error("Private storage is locked. Sign the storage-unlock message first.");
-  }
+function getStorageSession() {
   return activeSession;
 }
 
@@ -184,7 +181,8 @@ export async function unlockPrivateStorage(walletAddress: string, existingSignat
 }
 
 export async function readPrivateRecord<T>(namespace: string): Promise<T | null> {
-  const session = requireStorageSession();
+  const session = getStorageSession();
+  if (!session) return null;
   const database = await openPrivateDatabase();
 
   try {
@@ -219,7 +217,8 @@ export async function readPrivateRecord<T>(namespace: string): Promise<T | null>
 }
 
 export async function writePrivateRecord<T>(namespace: string, value: T) {
-  const session = requireStorageSession();
+  const session = getStorageSession();
+  if (!session) return false;
   const database = await openPrivateDatabase();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt(
@@ -247,10 +246,13 @@ export async function writePrivateRecord<T>(namespace: string, value: T) {
   } finally {
     database.close();
   }
+
+  return true;
 }
 
 export async function removePrivateRecord(namespace: string) {
-  const session = requireStorageSession();
+  const session = getStorageSession();
+  if (!session) return false;
   const database = await openPrivateDatabase();
 
   try {
@@ -260,10 +262,13 @@ export async function removePrivateRecord(namespace: string) {
   } finally {
     database.close();
   }
+
+  return true;
 }
 
 async function recordsForActiveWallet() {
-  const session = requireStorageSession();
+  const session = getStorageSession();
+  if (!session) return [] as EncryptedRecord[];
   const database = await openPrivateDatabase();
 
   try {
@@ -279,7 +284,16 @@ async function recordsForActiveWallet() {
 }
 
 export async function exportPrivateStorage() {
-  const session = requireStorageSession();
+  const session = getStorageSession();
+  if (!session) {
+    return {
+      format: "coverfi-private-export",
+      schemaVersion: RECORD_SCHEMA_VERSION,
+      exportedAt: new Date().toISOString(),
+      walletAddress: "",
+      data: {},
+    };
+  }
   const records = await recordsForActiveWallet();
   const data: Record<string, unknown> = {};
 
