@@ -66,14 +66,14 @@ function sidebarHref(item: string) {
     Dashboard: '#app/dashboard',
     Portfolio: '#app/portfolio',
     Protect: '#app/protect',
+    'Rate Lock': '#app/rate-lock',
+    'Depeg Shield': '#app/depeg-shield',
     'Asset Flow': '#app/asset-flow',
-    'Protocol Status': '#app/protocol-status',
     Positions: '#app/positions',
     Claims: '#app/claims',
     History: '#app/history',
     Profile: '#app/profile',
     'Pay Username': '#app/pay-username',
-    'QR Service': '#app/qr-service',
   };
 
   return map[item] || `#app/${item.toLowerCase().replace(/\s+/g, '-')}`;
@@ -149,9 +149,12 @@ export function DashboardLayout({ title, subtitle, sidebarItems, username, walle
       <div className="relative min-h-screen">
         <aside className="sticky top-0 z-40 border-b border-[#E1E0CC]/10 bg-black/90 p-4 backdrop-blur-xl sm:p-5 lg:fixed lg:left-0 lg:top-0 lg:flex lg:h-screen lg:w-[280px] lg:flex-col lg:border-b-0 lg:border-r">
           <div className="flex items-center justify-between lg:block">
-            <div>
-              <p className="font-serif text-3xl italic leading-none sm:text-4xl">CoverFi</p>
-              <p className="mt-2 text-[10px] uppercase tracking-[0.2em] text-[#E1E0CC]/40 sm:text-xs sm:tracking-[0.25em]">Stablecoin Protection</p>
+            <div className="flex items-center gap-3">
+              <img src="/logo.png" alt="CoverFi" className="h-11 w-11 shrink-0 object-contain" />
+              <div>
+                <p className="font-serif text-3xl italic leading-none sm:text-4xl">CoverFi</p>
+                <p className="mt-2 text-[10px] uppercase tracking-[0.2em] text-[#E1E0CC]/40 sm:text-xs sm:tracking-[0.25em]">Stablecoin Protection</p>
+              </div>
             </div>
             <button onClick={onLogout} className="rounded-xl border border-[#E1E0CC]/15 p-3 text-[#E1E0CC]/65 transition-colors hover:bg-[#E1E0CC] hover:text-black lg:hidden" aria-label="Log out">
               <LogOut className="h-4 w-4" />

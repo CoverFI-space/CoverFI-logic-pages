@@ -1,23 +1,9 @@
-import {
-  getAddress,
-  isConnected,
-  requestAccess,
-  signMessage as signFreighterMessage,
-  signTransaction as signFreighterTransaction,
-} from "@stellar/freighter-api";
-
-const SELECTED_WALLET_KEY = "coverfi_selected_stellar_wallet";
 const PUBLIC_NETWORK_PASSPHRASE = "Public Global Stellar Network ; September 2015";
 const TESTNET_NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
 
 type StellarWalletsKitRuntime = typeof import("@creit.tech/stellar-wallets-kit/sdk")["StellarWalletsKit"];
 type DefaultModules = typeof import("@creit.tech/stellar-wallets-kit/modules/utils")["defaultModules"];
-
-type FreighterResult<T> = T & {
-  error?: {
-    message?: string;
-  };
-};
+type WalletModule = ReturnType<DefaultModules>[number];
 
 type WalletSignResult = {
   signedTxXdr?: string;
@@ -32,13 +18,114 @@ let walletKitPromise: Promise<{
   defaultModules: DefaultModules;
 }> | null = null;
 let initialized = false;
+let walletConnectionPromise: Promise<string> | null = null;
+const walletSignaturePromises = new Map<string, Promise<string>>();
+let oneKeyAddressPromise: Promise<string> | null = null;
 
-function assertWalletResponse<T>(response: FreighterResult<T>, fallbackMessage: string): T {
-  if (response.error) {
-    throw new Error(response.error.message || fallbackMessage);
+type OneKeyStellarProvider = {
+  isOneKey?: boolean;
+  getAddress: (options?: { path?: string }) => Promise<{ address: string }>;
+  getNetwork?: () => Promise<{ network?: string; networkPassphrase?: string }>;
+  signTransaction: (xdr: string, options?: Record<string, unknown>) => Promise<{
+    signedTxXdr: string;
+    signerAddress?: string;
+  }>;
+  signAuthEntry: (entry: string, options?: Record<string, unknown>) => Promise<{
+    signedAuthEntry: string;
+    signerAddress?: string;
+  }>;
+  signMessage: (message: string, options?: Record<string, unknown>) => Promise<{
+    signedMessage: string;
+    signerAddress?: string;
+  }>;
+};
+
+declare global {
+  interface Window {
+    $onekey?: { stellar?: OneKeyStellarProvider };
   }
+}
 
-  return response;
+function getOneKeyProvider() {
+  const provider = window.$onekey?.stellar;
+  if (
+    !provider
+    || provider.isOneKey !== true
+    || typeof provider.getAddress !== "function"
+    || typeof provider.signMessage !== "function"
+  ) {
+    throw new Error("OneKey Stellar provider was not detected. Unlock the OneKey extension and enable its Stellar account.");
+  }
+  return provider;
+}
+
+function getOneKeyAddress() {
+  if (!oneKeyAddressPromise) {
+    oneKeyAddressPromise = getOneKeyProvider()
+      .getAddress()
+      .then((result) => {
+        const address = String(result?.address || '').trim();
+        if (!address) throw new Error('OneKey did not return a Stellar address.');
+        return address;
+      });
+    oneKeyAddressPromise.catch(() => {
+      oneKeyAddressPromise = null;
+    });
+  }
+  return oneKeyAddressPromise;
+}
+
+// Stellar Wallets Kit 2.5.0 still calls OneKey's retired getPublicKey API.
+// Keep the kit UI and selection lifecycle, but adapt this one module to
+// OneKey's current Stellar provider API (getAddress / getNetwork).
+function createCurrentOneKeyModule(module: WalletModule): WalletModule {
+  if (module.productId !== "onekey") return module;
+  return new Proxy(module, {
+    get(target, property, receiver) {
+      if (property === "isAvailable") {
+        return async () => {
+          const provider = window.$onekey?.stellar;
+          return Boolean(
+            provider
+            && provider.isOneKey === true
+            && typeof provider.getAddress === "function"
+            && typeof provider.signMessage === "function",
+          );
+        };
+      }
+      // OneKey is an injected browser wallet, not a platform wrapper.  The
+      // wallet kit auto-selects platform wrappers while rendering its modal;
+      // explicitly returning false prevents a render/reconnect loop.
+      if (property === "isPlatformWrapper") {
+        return async () => false;
+      }
+      if (property === "getAddress") {
+        return async () => ({ address: await getOneKeyAddress() });
+      }
+      if (property === "getNetwork") {
+        return async () => getOneKeyProvider().getNetwork?.() || {
+          networkPassphrase: networkPassphraseFromEnv(),
+        };
+      }
+      if (property === "signTransaction") {
+        return async (xdr: string, options?: Record<string, unknown>) => (
+          getOneKeyProvider().signTransaction(xdr, options)
+        );
+      }
+      if (property === "signAuthEntry") {
+        return async (entry: string, options?: Record<string, unknown>) => (
+          getOneKeyProvider().signAuthEntry(entry, options)
+        );
+      }
+      if (property === "signMessage") {
+        return async (message: string, options?: Record<string, unknown>) => (
+          getOneKeyProvider().signMessage(message, options)
+        );
+      }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
 }
 
 export function networkPassphraseFromEnv() {
@@ -68,9 +155,8 @@ async function initWalletKit() {
   initialized = true;
 
   StellarWalletsKit.init({
-    modules: defaultModules(),
+    modules: defaultModules().map(createCurrentOneKeyModule),
     network: networkPassphraseFromEnv() as never,
-    selectedWalletId: window.localStorage.getItem(SELECTED_WALLET_KEY) || undefined,
     authModal: {
       showInstallLabel: true,
       hideUnsupportedWallets: false,
@@ -125,46 +211,41 @@ function signedMessageToBase64(value: unknown) {
   throw new Error("The selected wallet returned an unsupported signature format.");
 }
 
-async function connectFreighterFallback() {
-  const connection = assertWalletResponse(await isConnected(), "Freighter is not available.");
-
-  if (!connection.isConnected) {
-    throw new Error("Install or unlock a Stellar wallet, then try again.");
+function walletError(error: unknown, fallback: string) {
+  if (error instanceof Error) return error;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return new Error(message);
   }
-
-  const access = assertWalletResponse(await requestAccess(), "Wallet connection was rejected.");
-
-  if (access.address) {
-    window.localStorage.setItem(SELECTED_WALLET_KEY, "freighter");
-    return access.address;
-  }
-
-  const existingAddress = assertWalletResponse(await getAddress(), "Could not read your wallet address.");
-  window.localStorage.setItem(SELECTED_WALLET_KEY, "freighter");
-  return existingAddress.address;
+  return new Error(fallback);
 }
 
 export async function connectStellarWallet() {
-  const { StellarWalletsKit } = await initWalletKit();
+  if (walletConnectionPromise) return walletConnectionPromise;
+
+  walletConnectionPromise = (async () => {
+    const { StellarWalletsKit } = await initWalletKit();
+    try {
+      // Keep a successfully authorised OneKey address for this page lifetime.
+      // Re-opening the picker must not repeatedly invoke OneKey's permission
+      // method; a rejected request clears this cache in getOneKeyAddress().
+      // The page clears its own selected-wallet state before opening this
+      // picker. Calling the kit's disconnect here makes OneKey re-enter its
+      // extension connection lifecycle and can reopen its approval window.
+      const result = await StellarWalletsKit.authModal();
+      if (!result.address) {
+        throw new Error("No wallet address was selected.");
+      }
+      return result.address;
+    } catch (error) {
+      throw walletError(error, "Could not connect the selected Stellar wallet.");
+    }
+  })();
 
   try {
-    const result = await StellarWalletsKit.authModal();
-    if (!result.address) {
-      throw new Error("No wallet address was selected.");
-    }
-    const selectedId = StellarWalletsKit.selectedModule?.productId;
-    if (selectedId) {
-      window.localStorage.setItem(SELECTED_WALLET_KEY, selectedId);
-    }
-    return result.address;
-  } catch (error) {
-    try {
-      return await connectFreighterFallback();
-    } catch {
-      throw error instanceof Error
-        ? error
-        : new Error("Could not connect a Stellar wallet.");
-    }
+    return await walletConnectionPromise;
+  } finally {
+    walletConnectionPromise = null;
   }
 }
 
@@ -173,45 +254,39 @@ export async function signStellarWalletMessage(
   address: string,
   options: { legacyBase64Payload?: boolean } = {},
 ) {
-  const { StellarWalletsKit } = await initWalletKit();
-  const payload = options.legacyBase64Payload ? textToBase64(message) : message;
-  const networkPassphrase = networkPassphraseFromEnv();
+  const requestKey = `${address}:${message}:${options.legacyBase64Payload ? "base64" : "text"}`;
+  const inFlight = walletSignaturePromises.get(requestKey);
+  if (inFlight) return inFlight;
 
-  try {
-    const result = await StellarWalletsKit.signMessage(payload, {
-      address,
-      networkPassphrase,
-    });
-
-    if (result.signerAddress && result.signerAddress !== address) {
-      throw new Error("The selected wallet signed with a different account.");
-    }
-
-    if (!result.signedMessage) {
-      throw new Error("The selected wallet did not return a signature.");
-    }
-
-    return signedMessageToBase64(result.signedMessage);
-  } catch (kitError) {
-    const result = assertWalletResponse(
-      await signFreighterMessage(payload, {
+  const signaturePromise = (async () => {
+    const { StellarWalletsKit } = await initWalletKit();
+    const payload = options.legacyBase64Payload ? textToBase64(message) : message;
+    const networkPassphrase = networkPassphraseFromEnv();
+    try {
+      const result = await StellarWalletsKit.signMessage(payload, {
         address,
         networkPassphrase,
-      }),
-      "The selected wallet rejected the authentication signature.",
-    );
+      });
 
-    if (result.signerAddress && result.signerAddress !== address) {
-      throw new Error("The selected wallet signed with a different account.");
+      if (result.signerAddress && result.signerAddress !== address) {
+        throw new Error("The selected wallet signed with a different account.");
+      }
+
+      if (!result.signedMessage) {
+        throw new Error("The selected wallet did not return a signature.");
+      }
+
+      return signedMessageToBase64(result.signedMessage);
+    } catch (error) {
+      throw walletError(error, "The selected wallet rejected the authentication signature.");
     }
+  })();
 
-    if (!result.signedMessage) {
-      throw kitError instanceof Error
-        ? kitError
-        : new Error("The selected wallet did not return a signature.");
-    }
-
-    return signedMessageToBase64(result.signedMessage);
+  walletSignaturePromises.set(requestKey, signaturePromise);
+  try {
+    return await signaturePromise;
+  } finally {
+    walletSignaturePromises.delete(requestKey);
   }
 }
 
@@ -230,18 +305,12 @@ export async function signTransactionWithSelectedWallet(
       signedTxXdr: result.signedTxXdr,
       signerAddress: result.signerAddress,
     };
-  } catch (kitError) {
-    try {
-      return await signFreighterTransaction(transactionXdr, options);
-    } catch {
-      return {
-        error: {
-          message: kitError instanceof Error
-            ? kitError.message
-            : "The selected wallet rejected the transaction.",
-        },
-      };
-    }
+  } catch (error) {
+    return {
+      error: {
+        message: walletError(error, "The selected wallet rejected the transaction.").message,
+      },
+    };
   }
 }
 

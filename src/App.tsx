@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { AppProvider } from "./context/AppContext";
 import DashboardPage from "./pages/DashboardPage";
 import AssetFlowPage from "./pages/AssetFlowPage";
-import ProtocolStatusPage from "./pages/ProtocolStatusPage";
+import ValueProtectionPage from "./pages/ValueProtectionPage";
+import InvoicePage from "./pages/InvoicePage";
 import LoginPage from "./pages/LoginPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import ReceiptPage from "./pages/ReceiptPage";
@@ -17,14 +18,14 @@ const validAppRoutes = new Set([
   "app/dashboard",
   "app/portfolio",
   "app/protect",
+  "app/rate-lock",
+  "app/depeg-shield",
   "app/asset-flow",
-  "app/protocol-status",
   "app/positions",
   "app/claims",
   "app/pay-username",
   "app/history",
   "app/ai-chat",
-  "app/qr-service",
   "app/profile",
 ]);
 
@@ -49,6 +50,7 @@ function getRouteFromLocation(location: Location) {
   if (pathname === "login") return "login";
   if (pathname === "terms" || pathname === "privacy") return "terms";
   if (pathname === "receipt") return "receipt";
+  if (pathname.startsWith("invoice/")) return "invoice";
   if (pathname === "dashboard") return "app/dashboard";
   if (pathname.startsWith("app/")) return pathname;
 
@@ -104,6 +106,11 @@ export default function App() {
     );
   }
 
+  if (route === "invoice") {
+    const token = window.location.pathname.split("/").filter(Boolean)[1] || "";
+    return token ? <InvoicePage token={token} /> : <NotFoundPage />;
+  }
+
   if (route.startsWith("app/") && !validAppRoutes.has(route)) {
     return <NotFoundPage />;
   }
@@ -114,8 +121,10 @@ export default function App() {
         <AppProvider>
           {route === "app/asset-flow" ? (
             <AssetFlowPageBridge />
-          ) : route === "app/protocol-status" ? (
-            <ProtocolStatusPageBridge />
+          ) : route === "app/rate-lock" || route === "app/depeg-shield" ? (
+            <ValueProtectionPageBridge
+              mode={route === "app/rate-lock" ? "rate-lock" : "depeg-shield"}
+            />
           ) : (
             <DashboardPage route={route === "dashboard" ? "app/dashboard" : route} />
           )}
@@ -139,10 +148,10 @@ function AssetFlowPageBridge() {
   }} />;
 }
 
-function ProtocolStatusPageBridge() {
+function ValueProtectionPageBridge({ mode }: { mode: "rate-lock" | "depeg-shield" }) {
   const [session] = useState(() => getStoredSession());
   if (!session) return <DashboardPage route="app/dashboard" />;
-  return <ProtocolStatusPage username={session.username} walletAddress={session.walletAddress} onLogout={() => {
+  return <ValueProtectionPage mode={mode} username={session.username} walletAddress={session.walletAddress} onLogout={() => {
     lockPrivateStorage();
     clearEmbeddedWalletSession();
     clearStoredSession();

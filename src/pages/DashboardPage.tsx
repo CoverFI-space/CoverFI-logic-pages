@@ -11,7 +11,6 @@ import {
   FileText,
   KeyRound,
   Mail,
-  QrCode,
   ReceiptText,
   RefreshCw,
   Search,
@@ -90,7 +89,6 @@ import {
 } from "../lib/encryptedStorage";
 import { PrinterReceipt, ReceiptPaper } from "../components/PrinterReceipt";
 import type { ReceiptData } from "../components/PrinterReceipt";
-import { CoverFiQrCode } from "../components/CoverFiQrCode";
 import { AuthenticatorQrCode } from "../components/AuthenticatorQrCode";
 import { CodeBoxes } from "../components/CodeBoxes";
 import type { ProtectionPosition, UserProfile } from "../context/AppContext";
@@ -602,13 +600,13 @@ function AppShell({
         "Dashboard",
         "Portfolio",
         "Protect",
+        "Rate Lock",
+        "Depeg Shield",
         "Asset Flow",
         "Positions",
         "Claims",
         "Pay Username",
         "History",
-        "QR Service",
-        "Protocol Status",
         "Profile",
       ]}
       username={username || "New user"}
@@ -966,8 +964,9 @@ function Protect({
     durationChoices.find((choice) => choice.value === duration) ??
     durationChoices[1];
   const currentUsdValue = protectedAmount * livePrice;
-  const maxPayoutEstimate = contractQuote?.maximumPayout ?? Number((protectedAmount * 0.1).toFixed(2));
+  const maxPayoutEstimate = contractQuote?.maximumPayout ?? 0;
   const protectionFeeEstimate = contractQuote?.totalDue ?? feePaid;
+  const payoutSymbol = network === "testnet" ? "CFTUSD" : "USDC";
   const expiryTime = useMemo(() => {
     const expiry = new Date();
     expiry.setDate(expiry.getDate() + Number(duration));
@@ -1003,29 +1002,6 @@ function Protect({
       );
     } finally {
       setPriceLoading(false);
-    }
-  }
-
-  async function ensureTestPremiumTokenReady() {
-    if (network !== "testnet") return;
-
-    setPriceStatus("Checking test CFTUSD premium balance.");
-    const balance = await getPayoutAssetBalanceOnChain({
-      userAddress: walletAddress,
-      network,
-    });
-
-    if (balance === null) {
-      setPriceStatus("Creating the test CFTUSD trustline. Your wallet will ask you to sign.");
-      await trustPayoutAssetOnChain({ userAddress: walletAddress, network });
-      setPriceStatus("Trustline created. Funding your wallet with test CFTUSD.");
-      await requestTestCftusd(walletAddress);
-      return;
-    }
-
-    if (balance < 1) {
-      setPriceStatus("Funding your wallet with test CFTUSD for the protection premium.");
-      await requestTestCftusd(walletAddress);
     }
   }
 
@@ -1080,7 +1056,7 @@ function Protect({
     if (belowMinimumNotional) {
       setQuoteLoading(false);
       setCanCreatePosition(false);
-      setQuoteStatus(`Minimum protected amount is about ${tokenUnits(minimumProtectedAmount)} ${selectedAssetSymbol} for the 1 CFTUSD contract minimum.`);
+      setQuoteStatus(`Minimum protected amount is about ${tokenUnits(minimumProtectedAmount)} ${selectedAssetSymbol} for the $1 protection-value minimum.`);
       return;
     }
 
@@ -1171,10 +1147,9 @@ function Protect({
 
     try {
       if (belowMinimumNotional) {
-        throw new Error(`Minimum protected amount is about ${tokenUnits(minimumProtectedAmount)} ${selectedAssetSymbol} for the 1 CFTUSD contract minimum.`);
+        throw new Error(`Minimum protected amount is about ${tokenUnits(minimumProtectedAmount)} ${selectedAssetSymbol} for the $1 protection-value minimum.`);
       }
 
-      await ensureTestPremiumTokenReady();
       const createInput = {
         userAddress: walletAddress,
         network,
@@ -1203,7 +1178,7 @@ function Protect({
       createPosition({
         asset,
         protectedAmount,
-        feePaid,
+        feePaid: protectionFeeEstimate,
         entryPrice: displayPrice,
         currentPrice: displayPrice,
         expiryTime,
@@ -1219,7 +1194,7 @@ function Protect({
         from: `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`,
         to: `Protection Contract`,
         amount: `${protectedAmount} ${asset.split(' ')[0]}`,
-        fee: `${feePaid} ${asset.split(' ')[0]}`,
+        fee: `${protectionFeeEstimate} ${asset.split(' ')[0]}`,
         txHash: receipt.transactionHash,
         date: new Date().toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' }),
       });
@@ -1411,7 +1386,7 @@ function Protect({
                 value={tokenQuote(protectedAmount, selectedAssetSymbol, livePrice)}
               />
               <Info label="Current USD value" value={usd(currentUsdValue)} />
-              <Info label="Estimated max payout cap" value={tokenQuote(maxPayoutEstimate, selectedAssetSymbol, livePrice)} />
+              <Info label="Estimated max payout cap" value={`${tokenUnits(maxPayoutEstimate)} ${payoutSymbol}`} />
               <Info
                 label="Position check"
                 value={
@@ -3765,6 +3740,10 @@ function formatAssetAmount(value: number, asset: string) {
   return `${value.toLocaleString("en-US", { maximumFractionDigits: 7 })} ${asset}`;
 }
 
+function compactChatPublicIds(value: string) {
+  return value.replace(/\b[GC][A-Z2-7]{55}\b/g, (identifier) => `${identifier.slice(0, 5)}…${identifier.slice(-3)}`);
+}
+
 function renderMarkdownInline(text: string) {
   return text
     .split(/(`[^`]+`|\*\*[^*]+\*\*)/g)
@@ -3775,7 +3754,7 @@ function renderMarkdownInline(text: string) {
           <code
             key={`${part}-${index}`}
             className="rounded bg-[#E1E0CC]/10 px-1.5 py-0.5 text-[0.92em] text-[#E1E0CC]">
-            {part.slice(1, -1)}
+            {compactChatPublicIds(part.slice(1, -1))}
           </code>
         );
       }
@@ -3783,12 +3762,12 @@ function renderMarkdownInline(text: string) {
       if (part.startsWith("**") && part.endsWith("**")) {
         return (
           <strong key={`${part}-${index}`} className="font-semibold text-[#E1E0CC]">
-            {part.slice(2, -2)}
+            {compactChatPublicIds(part.slice(2, -2))}
           </strong>
         );
       }
 
-      return <span key={`${part}-${index}`}>{part}</span>;
+      return <span key={`${part}-${index}`}>{compactChatPublicIds(part)}</span>;
     });
 }
 
@@ -4422,8 +4401,8 @@ const agentSuggestions = [
   "What should I check before claiming a payout?",
 ];
 
-const generalModelOptions = ["deepseek-chat", "deepseek-reasoner"];
-const researchModelOptions = ["deepseek-research", "deepseek-reasoner"];
+const generalModelOptions = ["deepseek-v4-flash", "deepseek-v4-pro"];
+const researchModelOptions = ["deepseek-v4-pro", "deepseek-v4-flash"];
 
 function parsePaymentDraft(
   text: string,
@@ -4513,7 +4492,7 @@ function AiChat({
   const pageContext = useMemo(() => {
     const route = window.sessionStorage.getItem("coverfi_ai_page_context") || "#app/dashboard";
     const labels: Record<string, string> = {
-      "#app/dashboard": "Dashboard", "#app/portfolio": "Portfolio", "#app/protect": "Protect", "#app/asset-flow": "Asset Flow", "#app/positions": "Positions", "#app/claims": "Claims", "#app/pay-username": "Pay Username", "#app/history": "History", "#app/qr-service": "QR Service", "#app/protocol-status": "Protocol Status", "#app/profile": "Profile",
+      "#app/dashboard": "Dashboard", "#app/portfolio": "Portfolio", "#app/protect": "Protect", "#app/rate-lock": "Rate Lock", "#app/depeg-shield": "Depeg Shield", "#app/asset-flow": "Asset Flow", "#app/positions": "Positions", "#app/claims": "Claims", "#app/pay-username": "Pay Username", "#app/history": "History", "#app/profile": "Profile",
     };
     return labels[route] || "CoverFi";
   }, []);
@@ -4914,11 +4893,11 @@ function AiChat({
                   </span>
                 )}
                 <div
-                  className={`max-w-2xl rounded-2xl px-5 py-4 text-sm leading-relaxed shadow-2xl ${item.sender === "user" ? "bg-[#E1E0CC] text-black" : "border border-[#E1E0CC]/10 bg-black/45 text-[#E1E0CC]/75"}`}>
+                  className={`min-w-0 max-w-2xl break-words rounded-2xl px-5 py-4 text-sm leading-relaxed shadow-2xl [overflow-wrap:anywhere] ${item.sender === "user" ? "bg-[#E1E0CC] text-black" : "border border-[#E1E0CC]/10 bg-black/45 text-[#E1E0CC]/75"}`}>
                   {item.sender === "assistant" ? (
                     <MarkdownMessage text={item.text} />
                   ) : (
-                    item.text
+                    compactChatPublicIds(item.text)
                   )}
                 </div>
               </div>
@@ -5057,105 +5036,6 @@ function History({
     </AppShell>
   );
 }
-
-function QrService({
-  username,
-  walletAddress,
-  onLogout,
-}: {
-  username: string;
-  walletAddress: string;
-  onLogout: () => void;
-}) {
-  const [qrValue, setQrValue] = useState(`https://coverfi.space/app/pay-username`);
-  const [qrLabel, setQrLabel] = useState("CoverFi Pay");
-  const [copied, setCopied] = useState(false);
-  const filename = qrLabel || "coverfi-qr";
-
-  async function copyValue() {
-    await navigator.clipboard.writeText(qrValue);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
-  }
-
-  return (
-    <AppShell
-      username={username}
-      walletAddress={walletAddress}
-      title="QR Service."
-      subtitle="Create CoverFi-styled QR codes for MFA setup links, payment pages, support URLs, and partner onboarding."
-      onLogout={onLogout}>
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <GlassCard className="p-5">
-          <div className="flex items-center gap-3">
-            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-[#E1E0CC] text-black">
-              <QrCode className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="text-xs uppercase tracking-[0.28em] text-[#E1E0CC]/40">
-                QR generator
-              </p>
-              <h3 className="mt-1 text-2xl text-[#E1E0CC]">Custom CoverFi QR</h3>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-5">
-            <FormInput
-              label="Label"
-              value={qrLabel}
-              onChange={setQrLabel}
-              placeholder="CoverFi MFA"
-            />
-            <label className="block">
-              <span className="text-xs uppercase tracking-[0.25em] text-[#E1E0CC]/40">
-                QR content
-              </span>
-              <textarea
-                value={qrValue}
-                onChange={(event) => setQrValue(event.target.value)}
-                placeholder="Paste a URL, otpauth:// link, wallet address, or support reference"
-                rows={7}
-                className="mt-3 w-full resize-none rounded-xl border border-[#E1E0CC]/12 bg-black/35 px-4 py-3 text-sm leading-6 text-[#E1E0CC] outline-none transition-colors placeholder:text-[#E1E0CC]/25 focus:border-[#E1E0CC]/45"
-              />
-            </label>
-            <div className="flex flex-wrap gap-3">
-              <PrimaryButton
-                type="button"
-                variant="outline"
-                disabled={!qrValue.trim()}
-                onClick={() => void copyValue()}>
-                <Copy className="h-4 w-4" />
-                {copied ? "Copied" : "Copy content"}
-              </PrimaryButton>
-              <PrimaryButton
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setQrLabel("CoverFi MFA");
-                  setQrValue("otpauth://totp/CoverFi:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=CoverFi&algorithm=SHA1&digits=6&period=30");
-                }}>
-                <ShieldCheck className="h-4 w-4" />
-                MFA sample
-              </PrimaryButton>
-            </div>
-          </div>
-        </GlassCard>
-
-        <GlassCard className="p-5">
-          <CoverFiQrCode
-            value={qrValue}
-            label={qrLabel || "CoverFi QR"}
-            caption="Scan test with the target app before publishing."
-            filename={filename}
-            size={260}
-            showDownloads
-          />
-        </GlassCard>
-      </section>
-    </AppShell>
-  );
-}
-
 export default function DashboardPage({ route }: { route: string }) {
   const [session, setSession] = useState(() => getStoredSession());
 
@@ -5251,17 +5131,6 @@ export default function DashboardPage({ route }: { route: string }) {
           onLogout={handleLogout}
           loginMethod={session.loginMethod}
           onWalletLinked={setSession}
-        />
-        <Toast />
-      </>
-    );
-  if (route === "app/qr-service")
-    return (
-      <>
-        <QrService
-          username={session.username}
-          walletAddress={session.walletAddress}
-          onLogout={handleLogout}
         />
         <Toast />
       </>

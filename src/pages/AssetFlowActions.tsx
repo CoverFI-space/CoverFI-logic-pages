@@ -152,23 +152,6 @@ function ProtectionAction({
       window.clearTimeout(timer);
     };
   }, [asset, duration, network, onNodeStates, parsedAmount, walletAddress]);
-  async function ensureTestPremiumToken() {
-    if (network !== "testnet") return;
-    const balance = await getPayoutAssetBalanceOnChain({
-      userAddress: walletAddress,
-      network,
-    });
-    if (balance === null) {
-      setStatus(
-        "Creating the test CFTUSD trustline. Review the wallet request.",
-      );
-      await trustPayoutAssetOnChain({ userAddress: walletAddress, network });
-      await requestTestCftusd(walletAddress);
-    } else if (balance < 1) {
-      setStatus("Funding test CFTUSD for the protection premium.");
-      await requestTestCftusd(walletAddress);
-    }
-  }
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!quote || !Number.isFinite(parsedAmount) || parsedAmount <= 0) return;
@@ -188,7 +171,6 @@ function ProtectionAction({
       settlement: "Idle",
     });
     try {
-      await ensureTestPremiumToken();
       await preflightProtectionPositionOnChain(input);
       setStatus(
         "Review the exact contract transaction in your wallet. CoverFi cannot sign it for you.",
@@ -300,7 +282,7 @@ function ProtectionAction({
         {" "}
         <div>
           <span>Premium</span>
-          <strong>{quote ? quote.totalDue.toFixed(7) : "—"}</strong>
+          <strong>{quote ? `${quote.totalDue.toFixed(7)} ${asset.split(" ")[0]}` : "—"}</strong>
         </div>{" "}
         <div>
           <span>Maximum payout</span>

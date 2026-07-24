@@ -1,4 +1,3 @@
-import { getNetworkDetails } from '@stellar/freighter-api';
 import {
   Account,
   Address,
@@ -37,6 +36,33 @@ type CreateProtectionPositionInput = {
   protectedAmount: number;
   durationSeconds: number;
   partnerAddress?: string;
+};
+
+export type PaymentLockInput = {
+  userAddress: string;
+  recipientAddress: string;
+  network: StellarNetwork;
+  paymentAmount: number;
+  durationSeconds: 900 | 3600 | 86400;
+  referenceHash?: string;
+};
+
+export type FloorShieldInput = {
+  userAddress: string;
+  network: StellarNetwork;
+  protectedAmount: number;
+  floorPrice: number;
+  durationSeconds: 86400 | 604800 | 2592000;
+};
+
+export type ValueProtectionQuote = {
+  entryPrice: number;
+  maximumPayout: number;
+  riskPremium: number;
+  automationFee: number;
+  totalDue: number;
+  recipientValue?: number;
+  floorPrice?: number;
 };
 
 export type ProtectionQuote = {
@@ -118,6 +144,26 @@ function engineContractId() {
   return id;
 }
 
+function paymentLockEngineContractId() {
+  const id = String(import.meta.env.VITE_PAYMENT_LOCK_ENGINE_CONTRACT_ID || '').trim();
+  if (!id) throw new Error('Payment Lock is not deployed for this network yet.');
+  return id;
+}
+
+function floorShieldEngineContractId() {
+  const id = String(import.meta.env.VITE_FLOOR_SHIELD_ENGINE_CONTRACT_ID || '').trim();
+  if (!id) throw new Error('Depeg Shield is not deployed for this network yet.');
+  return id;
+}
+
+export function isPaymentLockConfigured() {
+  return Boolean(String(import.meta.env.VITE_PAYMENT_LOCK_ENGINE_CONTRACT_ID || '').trim());
+}
+
+export function isFloorShieldConfigured() {
+  return Boolean(String(import.meta.env.VITE_FLOOR_SHIELD_ENGINE_CONTRACT_ID || '').trim());
+}
+
 function reserveVaultContractId() {
   const id = String(import.meta.env.VITE_RESERVE_VAULT_CONTRACT_ID || '').trim();
   if (!id) {
@@ -195,12 +241,10 @@ function assetContractId(asset: string, network: StellarNetwork) {
 }
 
 export function getProtectionAssetOptions(network: StellarNetwork): ProtectionAssetOption[] {
+  // The deployed protection engine is a single XLM/CFTUSD market. Do not show
+  // assets the contract cannot accept until multi-market configuration exists.
   return [
     { label: 'XLM Stellar', symbol: 'XLM' },
-    { label: 'USDC Stellar', symbol: 'USDC' },
-    { label: 'EURC Stellar', symbol: 'EURC' },
-    { label: 'PYUSD Stellar', symbol: 'PYUSD' },
-    { label: 'AQUA Stellar', symbol: 'AQUA' },
   ].map((asset) => ({
     ...asset,
     configured: isAssetConfigured(asset.symbol, network),
@@ -245,7 +289,7 @@ function getContractErrorMessage(error: unknown) {
   }
 
   if (message.includes('trustline entry is missing')) {
-    return 'Your wallet needs the test CFTUSD trustline and test CFTUSD balance before creating protection.';
+    return 'This action needs the required asset balance in your wallet.';
   }
 
   if (message.includes('MissingValue') || message.includes('non-existing value for contract instance')) {
@@ -297,7 +341,7 @@ function getContractErrorMessage(error: unknown) {
   }
 
   if (message.includes('Error(Contract, #20)')) {
-    return 'This position is below the 1 CFTUSD minimum notional. For XLM at the current testnet price, try about 6 XLM or more.';
+    return 'This position is below the $1 minimum protection value. For XLM at the current testnet price, try a larger amount.';
   }
 
   return 'Contract action failed. Please try again.';
@@ -544,15 +588,9 @@ async function assertWalletNetwork(expectedNetwork: StellarNetwork, expectedPass
     return;
   }
 
-  const details = await getNetworkDetails();
-
-  if (details.error) {
-    return;
-  }
-
-  if (details.networkPassphrase && details.networkPassphrase !== expectedPassphrase) {
-    throw new Error(`Selected wallet is not on ${expectedNetwork}. Switch wallet network before creating the contract position.`);
-  }
+  // The selected wallet receives the expected network passphrase when signing.
+  // Avoid a Freighter-only probe here so every supported Stellar wallet can sign.
+  void expectedNetwork;
 }
 
 async function simulateContractCall(input: {
@@ -665,6 +703,94 @@ export async function getProtectionQuoteOnChain(input: CreateProtectionPositionI
       concentrationBps: nativeNumber(quote.concentration_bps),
       volatilityBps: nativeNumber(quote.volatility_bps),
     };
+  } catch (error) {
+    throw new Error(getContractErrorMessage(error));
+  }
+}
+
+function parseValueProtectionQuote(result: unknown): ValueProtectionQuote {
+  const quote = result && typeof result === 'object' ? result as Record<string, unknown> : {};
+  return {
+    entryPrice: fromOraclePrice(quote.entry_price),
+    maximumPayout: fromStroops(quote.maximum_payout),
+    riskPremium: fromStroops(quote.risk_premium),
+    automationFee: fromStroops(quote.automation_fee),
+    totalDue: fromStroops(quote.total_due),
+    recipientValue: quote.recipient_value === undefined ? undefined : fromStroops(quote.recipient_value),
+    floorPrice: quote.floor_price === undefined ? undefined : fromOraclePrice(quote.floor_price),
+  };
+}
+
+export async function getPaymentLockQuoteOnChain(input: PaymentLockInput): Promise<ValueProtectionQuote> {
+  try {
+    const result = await simulateContractCall({
+      userAddress: input.userAddress,
+      network: input.network,
+      contractId: paymentLockEngineContractId(),
+      method: 'quote_lock',
+      args: [nativeToScVal(toStroops(input.paymentAmount), { type: 'i128' }), nativeToScVal(BigInt(input.durationSeconds), { type: 'u64' })],
+    });
+    return parseValueProtectionQuote(result);
+  } catch (error) {
+    throw new Error(getContractErrorMessage(error));
+  }
+}
+
+export async function createPaymentLockOnChain(input: PaymentLockInput): Promise<ContractPositionReceipt> {
+  try {
+    const engine = new Contract(paymentLockEngineContractId());
+    const result = await submitContractOperations({
+      userAddress: input.userAddress,
+      network: input.network,
+      failureLabel: 'Protected payment could not be completed',
+      operations: [engine.call(
+        'create_lock',
+        Address.fromString(input.userAddress).toScVal(),
+        Address.fromString(input.recipientAddress).toScVal(),
+        nativeToScVal(toStroops(input.paymentAmount), { type: 'i128' }),
+        nativeToScVal(BigInt(input.durationSeconds), { type: 'u64' }),
+        input.referenceHash ? bytes32ScVal(input.referenceHash) : xdr.ScVal.scvVoid(),
+        xdr.ScVal.scvVoid(),
+      )],
+    });
+    return { transactionHash: result.transactionHash, contractPositionId: result.returnValue === undefined ? undefined : String(result.returnValue), assetContractId: xlmAssetContractId(input.network), payoutAssetContractId: payoutAssetContractId(input.network) };
+  } catch (error) {
+    throw new Error(getContractErrorMessage(error));
+  }
+}
+
+export async function getFloorShieldQuoteOnChain(input: FloorShieldInput): Promise<ValueProtectionQuote> {
+  try {
+    const result = await simulateContractCall({
+      userAddress: input.userAddress,
+      network: input.network,
+      contractId: floorShieldEngineContractId(),
+      method: 'quote_shield',
+      args: [nativeToScVal(toStroops(input.protectedAmount), { type: 'i128' }), nativeToScVal(BigInt(Math.round(input.floorPrice * 100_000_000)), { type: 'i128' }), nativeToScVal(BigInt(input.durationSeconds), { type: 'u64' })],
+    });
+    return parseValueProtectionQuote(result);
+  } catch (error) {
+    throw new Error(getContractErrorMessage(error));
+  }
+}
+
+export async function createFloorShieldOnChain(input: FloorShieldInput): Promise<ContractPositionReceipt> {
+  try {
+    const engine = new Contract(floorShieldEngineContractId());
+    const result = await submitContractOperations({
+      userAddress: input.userAddress,
+      network: input.network,
+      failureLabel: 'Depeg Shield could not be created',
+      operations: [engine.call(
+        'create_shield',
+        Address.fromString(input.userAddress).toScVal(),
+        nativeToScVal(toStroops(input.protectedAmount), { type: 'i128' }),
+        nativeToScVal(BigInt(Math.round(input.floorPrice * 100_000_000)), { type: 'i128' }),
+        nativeToScVal(BigInt(input.durationSeconds), { type: 'u64' }),
+        xdr.ScVal.scvVoid(),
+      )],
+    });
+    return { transactionHash: result.transactionHash, contractPositionId: result.returnValue === undefined ? undefined : String(result.returnValue), assetContractId: '', payoutAssetContractId: payoutAssetContractId(input.network) };
   } catch (error) {
     throw new Error(getContractErrorMessage(error));
   }
