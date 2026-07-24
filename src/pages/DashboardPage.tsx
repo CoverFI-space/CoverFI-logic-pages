@@ -600,8 +600,6 @@ function AppShell({
         "Dashboard",
         "Portfolio",
         "Protect",
-        "Rate Lock",
-        "Depeg Shield",
         "Asset Flow",
         "Positions",
         "Claims",

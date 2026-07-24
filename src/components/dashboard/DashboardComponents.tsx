@@ -66,8 +66,6 @@ function sidebarHref(item: string) {
     Dashboard: '#app/dashboard',
     Portfolio: '#app/portfolio',
     Protect: '#app/protect',
-    'Rate Lock': '#app/rate-lock',
-    'Depeg Shield': '#app/depeg-shield',
     'Asset Flow': '#app/asset-flow',
     Positions: '#app/positions',
     Claims: '#app/claims',

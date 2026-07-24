@@ -92,7 +92,7 @@ export default function AssetFlowPage({ username, walletAddress, onLogout }: { u
     <DashboardLayout
       title="Asset flow"
       subtitle="A fixed, zoomed-out map of each signed flow. Node badges reflect the live step created by the form below; arrows and routing cannot be changed."
-      sidebarItems={["Dashboard", "Portfolio", "Protect", "Rate Lock", "Depeg Shield", "Asset Flow", "Positions", "Claims", "Pay Username", "History", "Profile"]}
+      sidebarItems={["Dashboard", "Portfolio", "Protect", "Asset Flow", "Positions", "Claims", "Pay Username", "History", "Profile"]}
       username={username || "New user"} walletAddress={walletAddress} network={network} onNetworkChange={setNetwork} onLogout={onLogout}
     >
       <div className="flow-topbar">

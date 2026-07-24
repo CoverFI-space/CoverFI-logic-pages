@@ -18,7 +18,7 @@ import { getStoredSession } from '../lib/usernameStore';
 
 type Mode = 'rate-lock' | 'depeg-shield';
 
-const nav = ['Dashboard', 'Portfolio', 'Protect', 'Rate Lock', 'Depeg Shield', 'Asset Flow', 'Positions', 'Claims', 'Pay Username', 'History', 'Profile'];
+const nav = ['Dashboard', 'Portfolio', 'Protect', 'Asset Flow', 'Positions', 'Claims', 'Pay Username', 'History', 'Profile'];
 
 function format(value: number, suffix = '') {
   return `${Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '—'}${suffix}`;
