@@ -1813,13 +1813,17 @@ function Claims({
       Boolean(position.contractPositionId) &&
       (isPastExpiry(position) || position.status !== "Active"),
   );
+  const hasHighValuePosition = data.positions.some((position) => {
+    const totalUsd = highValueTotalUsd(position);
+    return Number.isFinite(totalUsd) && totalUsd > highValueVerificationUsd;
+  });
 
   useEffect(() => {
-    if (requiresRealWallet) return;
+    if (requiresRealWallet || !hasHighValuePosition) return;
     const session = getStoredSession();
     if (!session?.backendSessionToken || kycVerified) return;
     void refreshKycStatus().catch(() => undefined);
-  }, [walletAddress, requiresRealWallet]);
+  }, [walletAddress, requiresRealWallet, hasHighValuePosition, kycVerified]);
 
   function highValueTotalUsd(position: ProtectionPosition) {
     const principalUsd = position.protectedAmount * (position.entryPrice || 0);
